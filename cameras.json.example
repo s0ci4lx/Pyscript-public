@@ -1,0 +1,17 @@
+[
+    {
+        "id": "webcam",
+        "name": "Webcam (กล้องคอมพิวเตอร์)",
+        "url": "0"
+    },
+    {
+        "id": "screen1",
+        "name": "แคปหน้าจอ (Monitor 1)",
+        "url": "screen:1"
+    },
+    {
+        "id": "cctv_sample",
+        "name": "CCTV ตัวอย่าง (RTSP Stream)",
+        "url": "rtsp://username:password@192.0.2.10:554/stream1"
+    }
+]

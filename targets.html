@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>จัดการเป้าหมาย</title>
+    <link rel="stylesheet" href="app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+            </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .targets-container {
+            max-width: 1000px;
+        }
+
+        .targets-toolbar {
+            padding: 16px 24px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .target-count-badge {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .target-count-badge b {
+            color: var(--primary);
+            font-family: var(--font-head);
+            font-size: 1.1rem;
+        }
+
+        .target-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .target-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px;
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .target-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .target-img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: var(--radius-sm);
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+
+        .target-img:hover {
+            opacity: 0.85;
+        }
+
+        .target-name {
+            color: var(--text-main);
+            font-weight: 600;
+            margin-bottom: 12px;
+            word-break: break-word;
+            line-height: 1.4;
+        }
+
+        .target-group {
+            font-size: 0.8rem;
+            color: var(--warning);
+            font-weight: 500;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .btn-group .btn { flex: 1; white-space: nowrap; }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .tabs-navigation {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-family: var(--font-head);
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .tab-btn:hover {
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Global Page Loader -->
+    <div id="page-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.5s ease, visibility 0.5s;">
+        <div style="width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+        <div style="color: #ffffff; font-family: var(--font-head); font-size: 1.2rem; font-weight: 500; letter-spacing: 0.5px;">กำลังโหลดข้อมูลระบบเป้าหมาย...</div>
+    </div>
+    <div id="toast" class="toast">Notification Message</div>
+
+    <!-- Navbar -->
+    
+    <div class="browser-window">
+        <div class="browser-header">
+            <div class="mac-dots">
+                <div class="mac-dot mac-close"></div>
+                <div class="mac-dot mac-min"></div>
+                <div class="mac-dot mac-max"></div>
+            </div>
+            <div class="browser-url-bar">
+                🔒 https://ai-cctv.local/
+            </div>
+        </div>
+        <div class="browser-content">
+<nav class="navbar">
+        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <div class="nav-links">
+            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
+            <a href="history.html" class="nav-link">🕒 ประวัติการตรวจจับ</a>
+            <div class="nav-dropdown">
+                <span class="nav-link active">⚙️ จัดการระบบ ▾</span>
+                <div class="dropdown-content">
+                    <a href="targets.html" class="dropdown-item active">👥 จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item">⚙️ ตั้งค่าระบบและกล้อง</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <h1>👥 จัดการ<span>เป้าหมาย</span></h1>
+        <p>รายชื่อบุคคลเป้าหมายในระบบ Face Recognition</p>
+    </header>
+
+    <main class="container targets-container">
+        <!-- Tab Navigation -->
+        <div class="tabs-navigation">
+            <button id="tab-person" class="tab-btn active" onclick="switchTab('person')">👥 บุคคลเป้าหมาย</button>
+            <button id="tab-vehicle" class="tab-btn" onclick="switchTab('vehicle')">🚗 ยานพาหนะเป้าหมาย</button>
+            <button id="tab-plate" class="tab-btn" onclick="switchTab('plate')">💳 ป้ายทะเบียนเป้าหมาย</button>
+        </div>
+
+        <!-- SECTION: PERSON TARGETS -->
+        <div id="section-person">
+            <div class="glass-card targets-toolbar" style="display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;">
+                <span class="target-count-badge">รูปภาพบุคคลเป้าหมายทั้งหมด <b id="target-count">0</b> รูป</span>
+                <input type="text" id="person-search" oninput="filterPersonTargets()" placeholder="🔍 ค้นหารายชื่อบุคคล..." style="max-width: 300px; padding: 8px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: var(--font-body); outline: none;">
+            </div>
+
+            <div class="target-grid" id="target-grid" style="margin-top: 15px;">
+                <p class="empty-state">กำลังโหลดข้อมูล...</p>
+            </div>
+
+            <!-- Pagination -->
+            <div id="person-pagination" style="display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 25px;">
+                <button class="btn btn-ghost" id="btn-prev-page" onclick="changePersonPage(-1)">❮ ก่อนหน้า</button>
+                <span id="page-info" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">หน้า 1 / 1</span>
+                <button class="btn btn-ghost" id="btn-next-page" onclick="changePersonPage(1)">ถัดไป ❯</button>
+            </div>
+            
+            <!-- เพิ่มบุคคลเป้าหมาย -->
+            <div class="glass-card targets-toolbar" style="margin-top: 30px; display: block;">
+                <h3 style="margin-bottom: 15px; color: var(--primary);">👥 เพิ่มบุคคลเป้าหมาย</h3>
+                <form id="add-person-form" onsubmit="addPersonTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
+                    <input type="text" id="person_name" placeholder="ชื่อบุคคล เช่น สมชาย (หากเพิ่มหลายคน จะตั้งชื่อตามชื่อไฟล์รูปภาพโดยอัตโนมัติ)" style="flex: 1; min-width: 200px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <input type="file" id="person_file" accept="image/*" multiple required style="flex: 1; min-width: 200px; padding: 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface);">
+                    <button type="submit" class="btn btn-primary" id="btn-add-person" style="white-space: nowrap;">➕ เพิ่มบุคคล</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- SECTION: VEHICLE TARGETS -->
+        <div id="section-vehicle" style="display: none;">
+            <!-- เพิ่มยานพาหนะเป้าหมาย -->
+            <div class="glass-card targets-toolbar" style="display: block;">
+                <h3 style="margin-bottom: 15px; color: var(--primary);">🚗 เพิ่มยานพาหนะเป้าหมาย</h3>
+                <form id="add-vehicle-form" onsubmit="addVehicleTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
+                    <input type="text" id="vehicle_text" placeholder="พิมพ์ข้อความ เช่น รถสีแดง, รถกระบะสีขาว" style="flex: 1; min-width: 200px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <div style="display: flex; align-items: center; color: var(--text-muted);">หรือ</div>
+                    <input type="file" id="vehicle_file" accept="image/*" style="flex: 1; min-width: 200px; padding: 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface);">
+                    <button type="submit" class="btn btn-primary" id="btn-add-vehicle" style="white-space: nowrap;">➕ เพิ่มเป้าหมาย</button>
+                </form>
+            </div>
+            
+            <div class="glass-card targets-toolbar" style="margin-top: 25px; padding: 15px 24px;">
+                <h3 style="margin: 0;">รายการยานพาหนะเป้าหมาย</h3>
+            </div>
+            <div class="target-grid" id="vehicle-grid" style="margin-top: 15px;">
+                <p class="empty-state">กำลังโหลดข้อมูล...</p>
+            </div>
+        </div>
+
+        <!-- SECTION: PLATE TARGETS -->
+        <div id="section-plate" style="display: none;">
+            <!-- เพิ่มป้ายทะเบียนเป้าหมาย -->
+            <div class="glass-card targets-toolbar" style="display: block;">
+                <h3 style="margin-bottom: 15px; color: var(--primary);">💳 เพิ่มป้ายทะเบียนเป้าหมาย</h3>
+                <form id="add-plate-form" onsubmit="addPlateTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
+                    <input type="text" id="plate_number" placeholder="หมายเลขทะเบียน (เช่น 1กข9999 หรือใส่เฉพาะตัวเลข 9999)" required style="flex: 1; min-width: 250px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+
+                    <input type="text" id="plate_note" placeholder="รายละเอียด / หมายเหตุ เช่น รถกระบะ Toyota Revo สีเงิน ต้องสงสัยคดี..." style="flex: 2; min-width: 250px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <button type="submit" class="btn btn-primary" id="btn-add-plate" style="white-space: nowrap;">➕ เพิ่มป้ายทะเบียน</button>
+                </form>
+            </div>
+            
+            <div class="glass-card targets-toolbar" style="margin-top: 25px; padding: 15px 24px;">
+                <h3 style="margin: 0;">รายการป้ายทะเบียนเป้าหมาย</h3>
+            </div>
+            <div class="target-grid" id="plate-grid" style="margin-top: 15px;">
+                <p class="empty-state">กำลังโหลดข้อมูล...</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal for Full Image -->
+    <div id="imageModal" class="modal" onclick="closeModal()" style="cursor: zoom-out;">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <div style="display: flex; flex-direction: column; align-items: center; max-width: 90%; max-height: 90%; position: relative;" onclick="event.stopPropagation()">
+            <img id="modalImg" style="max-height: 80vh; max-width: 90vw; border-radius: 12px; box-shadow: var(--shadow-lg); display: block;">
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8081";
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (resource, options = {}) => {
+            const apiKey = localStorage.getItem('cctv_api_key') || '';
+            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
+                const headers = new Headers(options.headers || {});
+                headers.set('X-API-Key', apiKey);
+                options = { ...options, headers };
+            }
+            return nativeFetch(resource, options);
+        };
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+        function safeAssetUrl(base, filename) {
+            const safeName = encodeURIComponent(String(filename || '').split(/[\\/]/).pop());
+            return safeName ? `${API_URL}/${base}/${safeName}` : '';
+        }
+
+        function showToast(message, isError=false) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.style.backgroundColor = isError ? "#e5484d" : "#14a37f";
+            toast.style.visibility = "visible";
+            toast.style.opacity = "1";
+            toast.style.bottom = "48px";
+            setTimeout(() => {
+                toast.style.opacity = "0";
+                toast.style.bottom = "28px";
+                setTimeout(() => toast.style.visibility = "hidden", 500);
+            }, 3000);
+        }
+
+        let allPersonTargets = [];
+        let filteredPersonTargets = [];
+        let currentPersonPage = 1;
+        const itemsPerPage = 12; // แสดงผลแถวละ 4 รูป รวม 3 แถว เพื่อความกะทัดรัด
+
+        function switchTab(tabName) {
+            const personSec = document.getElementById("section-person");
+            const vehicleSec = document.getElementById("section-vehicle");
+            const plateSec = document.getElementById("section-plate");
+            const tabPerson = document.getElementById("tab-person");
+            const tabVehicle = document.getElementById("tab-vehicle");
+            const tabPlate = document.getElementById("tab-plate");
+
+            personSec.style.display = "none";
+            vehicleSec.style.display = "none";
+            plateSec.style.display = "none";
+            tabPerson.classList.remove("active");
+            tabVehicle.classList.remove("active");
+            tabPlate.classList.remove("active");
+
+            if (tabName === 'person') {
+                personSec.style.display = "block";
+                tabPerson.classList.add("active");
+            } else if (tabName === 'vehicle') {
+                vehicleSec.style.display = "block";
+                tabVehicle.classList.add("active");
+            } else if (tabName === 'plate') {
+                plateSec.style.display = "block";
+                tabPlate.classList.add("active");
+            }
+        }
+
+
+        async function loadTargets() {
+            try {
+                const res = await fetch(`${API_URL}/targets_list`);
+                allPersonTargets = await res.json();
+                document.getElementById("target-count").innerText = allPersonTargets.length;
+                filterPersonTargets(); // โหลดหน้าแรกและอัปเดตข้อมูล
+            } catch (err) {
+                console.error(err);
+                document.getElementById("target-grid").innerHTML = `<p class="empty-state" style="color: var(--danger);">ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้</p>`;
+            }
+        }
+
+        function filterPersonTargets() {
+            const query = document.getElementById("person-search").value.toLowerCase().trim();
+            if (query === "") {
+                filteredPersonTargets = [...allPersonTargets];
+            } else {
+                filteredPersonTargets = allPersonTargets.filter(t => 
+                    (t.name && t.name.toLowerCase().includes(query)) || 
+                    (t.base_name && t.base_name.toLowerCase().includes(query))
+                );
+            }
+            currentPersonPage = 1; // รีเซ็ตกลับไปหน้า 1 เสมอเมื่อมีการพิมพ์ค้นหา
+            renderPersonPage();
+        }
+
+        function renderPersonPage() {
+            const grid = document.getElementById("target-grid");
+            grid.innerHTML = "";
+
+            const totalItems = filteredPersonTargets.length;
+            const paginationDiv = document.getElementById("person-pagination");
+
+            if (totalItems === 0) {
+                grid.innerHTML = `<p class="empty-state">ไม่มีบุคคลเป้าหมายตรงกับการค้นหา</p>`;
+                paginationDiv.style.display = "none";
+                return;
+            }
+
+            paginationDiv.style.display = "flex";
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+            // ตรวจสอบความถูกต้องของหน้าปัจจุบัน
+            if (currentPersonPage < 1) currentPersonPage = 1;
+            if (currentPersonPage > totalPages) currentPersonPage = totalPages;
+
+            // แสดงหน้าตา Pagination
+            document.getElementById("page-info").innerText = `หน้า ${currentPersonPage} / ${totalPages}`;
+            document.getElementById("btn-prev-page").disabled = (currentPersonPage === 1);
+            document.getElementById("btn-next-page").disabled = (currentPersonPage === totalPages);
+
+            // ตัดรูปแสดงตามจำนวนจำกัดของหน้านั้นๆ
+            const startIndex = (currentPersonPage - 1) * itemsPerPage;
+            const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+            const pageItems = filteredPersonTargets.slice(startIndex, endIndex);
+
+            pageItems.forEach(target => {
+                const card = document.createElement("div");
+                card.className = "target-card";
+                const imgUrl = safeAssetUrl('targets_img', target.filename);
+                card.innerHTML = `
+                    <img src="${imgUrl}?t=${new Date().getTime()}" alt="${escapeHTML(target.name)}" class="target-img" title="คลิกเพื่อดูรูปขนาดเต็ม" onerror="this.src='https://via.placeholder.com/150'">
+                    <div class="target-name">${escapeHTML(target.name)} <br><span class="target-group">(กลุ่ม: ${escapeHTML(target.base_name)})</span></div>
+                    <div class="btn-group">
+                        <button class="btn btn-ghost btn-sm" data-action="rename">✏️ แก้ไขชื่อ</button>
+                        <button class="btn btn-soft-danger btn-sm" data-action="remove">🗑️ ลบ</button>
+                    </div>
+                `;
+                card.querySelector(".target-img").addEventListener("click", () => openModal(imgUrl));
+                card.querySelector('[data-action="rename"]').addEventListener("click", () => renameTarget(target.filename, target.name));
+                card.querySelector('[data-action="remove"]').addEventListener("click", () => removeTarget(target.filename));
+                grid.appendChild(card);
+            });
+        }
+
+        function changePersonPage(direction) {
+            currentPersonPage += direction;
+            renderPersonPage();
+        }
+
+        function openModal(imgSrc) {
+            document.getElementById("imageModal").style.display = "flex";
+            document.getElementById("modalImg").src = imgSrc;
+        }
+
+        function closeModal() {
+            document.getElementById("imageModal").style.display = "none";
+        }
+
+        async function renameTarget(filename, currentName) {
+            const { value: newName } = await Swal.fire({
+                title: 'เปลี่ยนชื่อเป้าหมาย',
+                input: 'text',
+                inputLabel: 'กรอกชื่อใหม่สำหรับเป้าหมายนี้:',
+                inputValue: currentName,
+                showCancelButton: true,
+                confirmButtonText: 'บันทึก',
+                cancelButtonText: 'ยกเลิก',
+                background: '#ffffff',
+                color: '#0f172a',
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#64748b',
+                inputValidator: (value) => {
+                    if (!value || value.trim() === "") {
+                        return 'กรุณากรอกชื่อ!'
+                    }
+                }
+            });
+
+            if (!newName || newName.trim() === "" || newName === currentName) return;
+
+            const formData = new FormData();
+            formData.append("old_filename", filename);
+            formData.append("new_name", newName.trim());
+
+            try {
+                const res = await fetch(`${API_URL}/rename_target`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast("✅ เปลี่ยนชื่อสำเร็จ!");
+                    loadTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ เกิดข้อผิดพลาด", true);
+            }
+        }
+
+        async function removeTarget(filename) {
+            const result = await Swal.fire({
+                title: 'ยืนยันการลบ?',
+                text: "⚠️ ต้องการลบเป้าหมายนี้ออกจากระบบใช่หรือไม่? ภาพเป้าหมายจะถูกลบถาวร",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#e5484d',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'ใช่, ลบเลย!',
+                cancelButtonText: 'ยกเลิก',
+                background: '#ffffff',
+                color: '#0f172a'
+            });
+
+            if(!result.isConfirmed) return;
+
+            try {
+                const res = await fetch(`${API_URL}/remove_target/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast("🗑️ ลบเป้าหมายสำเร็จ!");
+                    loadTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ เกิดข้อผิดพลาด", true);
+            }
+        }
+
+        async function loadVehicleTargets() {
+            try {
+                const res = await fetch(`${API_URL}/vehicle_targets_list`);
+                const targets = await res.json();
+                const grid = document.getElementById("vehicle-grid");
+
+                grid.innerHTML = "";
+                if(targets.length === 0) {
+                    grid.innerHTML = `<p class="empty-state">ไม่มียานพาหนะเป้าหมายในระบบ</p>`;
+                    return;
+                }
+
+                targets.forEach((target, index) => {
+                    const card = document.createElement("div");
+                    card.className = "target-card";
+                    
+                    let mediaHTML = `<div style="font-size: 3rem; margin-bottom: 10px;">${(target.type || '').includes('มอเตอร์ไซค์') ? '🏍️' : '🚗'}</div>`;
+                    if (target.filename) {
+                        const imgUrl = safeAssetUrl('vehicle_targets_img', target.filename);
+                        mediaHTML = `<img src="${imgUrl}?t=${new Date().getTime()}" alt="${escapeHTML(target.raw)}" class="target-img" data-img-url="${imgUrl}" title="คลิกเพื่อดูรูปขนาดเต็ม" onerror="this.src='https://via.placeholder.com/150'">`;
+                    }
+                    
+                    card.innerHTML = `
+                        ${mediaHTML}
+                        <div class="target-name">${escapeHTML(target.raw || (target.type + 'สี' + target.color))}</div>
+                        <div class="target-group">ประเภท: ${escapeHTML(target.type)} <br> สี: ${escapeHTML(target.color)}</div>
+                        <div class="btn-group" style="margin-top: 15px;">
+                            <button class="btn btn-ghost btn-sm" data-action="edit">✏️ แก้ไข</button>
+                            <button class="btn btn-soft-danger btn-sm" onclick="removeVehicleTarget(${index})">🗑️ ลบ</button>
+                        </div>
+                    `;
+                    const img = card.querySelector(".target-img");
+                    if (img) img.addEventListener("click", () => openModal(img.dataset.imgUrl));
+                    card.querySelector('[data-action="edit"]').addEventListener("click", () => editVehicleTarget(index, target.type || '', target.color || '', target.raw || ''));
+                    grid.appendChild(card);
+                });
+            } catch (err) {
+                console.error(err);
+                document.getElementById("vehicle-grid").innerHTML = `<p class="empty-state" style="color: var(--danger);">ไม่สามารถโหลดข้อมูลยานพาหนะได้</p>`;
+            }
+        }
+
+        async function addPersonTarget(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById("person_name");
+            const fileInput = document.getElementById("person_file");
+            
+            if (fileInput.files.length === 0) {
+                showToast("❌ กรุณาเลือกไฟล์ภาพใบหน้าบุคคล", true);
+                return;
+            }
+
+            const btn = document.getElementById("btn-add-person");
+            btn.disabled = true;
+            btn.innerText = "กำลังบันทึก...";
+
+            try {
+                let res;
+                // หากเลือกหลายไฟล์ หรือ ไม่ระบุชื่อบุคคล (ให้ดึงจากชื่อไฟล์)
+                if (fileInput.files.length > 1 || !nameInput.value.trim()) {
+                    const formData = new FormData();
+                    for (let i = 0; i < fileInput.files.length; i++) {
+                        formData.append("files", fileInput.files[i]);
+                    }
+                    res = await fetch(`${API_URL}/add_multiple_targets`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    // หากอัปโหลดรูปเดียวและระบุชื่อใหม่
+                    const formData = new FormData();
+                    formData.append("name", nameInput.value.trim());
+                    formData.append("file", fileInput.files[0]);
+                    res = await fetch(`${API_URL}/add_target`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                }
+
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showToast(`✅ ${data.message}`);
+                    nameInput.value = "";
+                    fileInput.value = "";
+                    loadTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล", true);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "➕ เพิ่มบุคคล";
+            }
+        }
+
+        async function addVehicleTarget(e) {
+            e.preventDefault();
+            const text = document.getElementById("vehicle_text").value;
+            const fileInput = document.getElementById("vehicle_file");
+            
+            if (!text && fileInput.files.length === 0) {
+                showToast("❌ กรุณาพิมพ์ข้อความ หรืออัปโหลดรูปภาพรถ", true);
+                return;
+            }
+            
+            const btn = document.getElementById("btn-add-vehicle");
+            btn.innerText = "กำลังเพิ่ม...";
+            btn.disabled = true;
+
+            try {
+                let res;
+                if (fileInput.files.length > 0) {
+                    const formData = new FormData();
+                    formData.append("file", fileInput.files[0]);
+                    res = await fetch(`${API_URL}/add_vehicle_image_target`, { method: 'POST', body: formData });
+                } else {
+                    const formData = new FormData();
+                    formData.append("text", text);
+                    res = await fetch(`${API_URL}/add_vehicle_target`, { method: 'POST', body: formData });
+                }
+                
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast("✅ " + data.message);
+                    document.getElementById("add-vehicle-form").reset();
+                    loadVehicleTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ เซิร์ฟเวอร์ไม่ตอบสนอง", true);
+            } finally {
+                btn.innerText = "➕ เพิ่มเป้าหมาย";
+                btn.disabled = false;
+            }
+        }
+
+        async function removeVehicleTarget(index) {
+            if(!confirm("ต้องการลบยานพาหนะเป้าหมายนี้ใช่หรือไม่?")) return;
+            try {
+                const res = await fetch(`${API_URL}/remove_vehicle_target/${index}`, { method: 'DELETE' });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast("🗑️ ลบสำเร็จ!");
+                    loadVehicleTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ เกิดข้อผิดพลาด", true);
+            }
+        }
+
+        async function editVehicleTarget(index, currentType, currentColor, currentRaw) {
+            const { value: formValues } = await Swal.fire({
+                title: '✏️ แก้ไขข้อมูลยานพาหนะเป้าหมาย',
+                html:
+                    `<div style="display: flex; flex-direction: column; gap: 15px; text-align: left; padding: 10px 0;">` +
+                    `  <div>` +
+                    `    <label style="font-weight: 600; display: block; margin-bottom: 5px; color: #334155;">ประเภทรถ:</label>` +
+                    `    <select id="swal-vehicle-type" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; font-family: var(--font-body);">` +
+                    `      <option value="รถเก๋ง" ${currentType === 'รถเก๋ง' ? 'selected' : ''}>รถเก๋ง</option>` +
+                    `      <option value="รถกระบะ" ${currentType === 'รถกระบะ' ? 'selected' : ''}>รถกระบะ</option>` +
+                    `      <option value="รถมอเตอร์ไซค์" ${currentType === 'รถมอเตอร์ไซค์' ? 'selected' : ''}>รถมอเตอร์ไซค์</option>` +
+                    `      <option value="รถบรรทุก" ${currentType === 'รถบรรทุก' ? 'selected' : ''}>รถบรรทุก</option>` +
+                    `      <option value="รถตู้" ${currentType === 'รถตู้' ? 'selected' : ''}>รถตู้</option>` +
+                    `      <option value="รถบัส" ${currentType === 'รถบัส' ? 'selected' : ''}>รถบัส</option>` +
+                    `    </select>` +
+                    `  </div>` +
+                    `  <div>` +
+                    `    <label style="font-weight: 600; display: block; margin-bottom: 5px; color: #334155;">สีรถ:</label>` +
+                    `    <select id="swal-vehicle-color" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; font-family: var(--font-body);">` +
+                    `      <option value="ขาว" ${currentColor === 'ขาว' ? 'selected' : ''}>ขาว</option>` +
+                    `      <option value="ดำ" ${currentColor === 'ดำ' ? 'selected' : ''}>ดำ</option>` +
+                    `      <option value="เทา" ${currentColor === 'เทา' ? 'selected' : ''}>เทา</option>` +
+                    `      <option value="แดง" ${currentColor === 'แดง' ? 'selected' : ''}>แดง</option>` +
+                    `      <option value="น้ำเงิน" ${currentColor === 'น้ำเงิน' ? 'selected' : ''}>น้ำเงิน</option>` +
+                    `      <option value="เขียว" ${currentColor === 'เขียว' ? 'selected' : ''}>เขียว</option>` +
+                    `      <option value="เหลือง" ${currentColor === 'เหลือง' ? 'selected' : ''}>เหลือง</option>` +
+                    `      <option value="ส้ม" ${currentColor === 'ส้ม' ? 'selected' : ''}>ส้ม</option>` +
+                    `      <option value="น้ำตาล" ${currentColor === 'น้ำตาล' ? 'selected' : ''}>น้ำตาล</option>` +
+                    `      <option value="ม่วง" ${currentColor === 'ม่วง' ? 'selected' : ''}>ม่วง</option>` +
+                    `      <option value="ฟ้า" ${currentColor === 'ฟ้า' ? 'selected' : ''}>ฟ้า</option>` +
+                    `      <option value="ชมพู" ${currentColor === 'ชมพู' ? 'selected' : ''}>ชมพู</option>` +
+                    `      <option value="ทอง" ${currentColor === 'ทอง' ? 'selected' : ''}>ทอง</option>` +
+                    `      <option value="เงิน" ${currentColor === 'เงิน' ? 'selected' : ''}>เงิน</option>` +
+                    `    </select>` +
+                    `  </div>` +
+                    `  <div>` +
+                    `    <label style="font-weight: 600; display: block; margin-bottom: 5px; color: #334155;">ชื่อเรียก / คำอธิบายเพิ่มเติม:</label>` +
+                    `    <input id="swal-vehicle-raw" class="swal2-input" type="text" value="${escapeHTML(currentRaw)}" placeholder="รายละเอียด เช่น รถมอเตอร์ไซค์สีขาว ล้อแม็กซี่" style="margin: 0; width: 100%; box-sizing: border-box; font-family: var(--font-body);">` +
+                    `  </div>` +
+                    `</div>`,
+                focusConfirm: false,
+                showCancelButton: true,
+                confirmButtonText: 'บันทึก',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#64748b',
+                background: '#ffffff',
+                color: '#0f172a',
+                preConfirm: () => {
+                    return {
+                        type: document.getElementById('swal-vehicle-type').value,
+                        color: document.getElementById('swal-vehicle-color').value,
+                        raw: document.getElementById('swal-vehicle-raw').value.trim()
+                    }
+                }
+            });
+
+            if (formValues) {
+                const formData = new FormData();
+                formData.append("type", formValues.type);
+                formData.append("color", formValues.color);
+                formData.append("raw", formValues.raw || `${formValues.type}สี${formValues.color}`);
+
+                try {
+                    const res = await fetch(`${API_URL}/edit_vehicle_target/${index}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if(data.status === 'success') {
+                        showToast("✅ แก้ไขข้อมูลยานพาหนะสำเร็จ!");
+                        loadVehicleTargets();
+                    } else {
+                        showToast("❌ " + data.message, true);
+                    }
+                } catch(e) {
+                    showToast("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ", true);
+                }
+            }
+        }
+
+        // --- PLATE TARGETS FUNCTIONS ---
+        async function loadPlateTargets() {
+            try {
+                const res = await fetch(`${API_URL}/plate_targets_list`);
+                const targets = await res.json();
+                const grid = document.getElementById("plate-grid");
+
+                if (!Array.isArray(targets) || targets.length === 0) {
+                    grid.innerHTML = `<p class="empty-state">ยังไม่มีรายการป้ายทะเบียนเป้าหมาย</p>`;
+                    return;
+                }
+
+                let html = "";
+                targets.forEach((target, index) => {
+                    const plateStr = target.plate || "";
+                    const noteStr = target.note || "";
+                    const createdAt = target.created_at || "";
+
+                    html += `
+                        <div class="target-card" style="padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); position: relative; box-shadow: var(--shadow-sm);">
+                            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 3px solid #f59e0b; border-radius: 8px; padding: 10px 20px; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); margin-bottom: 12px;">
+                                <div style="color: #f59e0b; font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">THAILAND - LICENSE PLATE</div>
+                                <div style="color: #ffffff; font-family: var(--font-head); font-size: 1.6rem; font-weight: 800; letter-spacing: 1px; margin-top: 2px;">${escapeHTML(plateStr)}</div>
+                            </div>
+                            <div style="font-size: 0.92rem; color: var(--text-main); font-weight: 600; margin-bottom: 4px; word-break: break-word;">${escapeHTML(noteStr || 'ไม่ระบุหมายเหตุ')}</div>
+                            ${createdAt ? `<div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 14px;">ลงทะเบียน: ${escapeHTML(createdAt)}</div>` : '<div style="margin-bottom: 14px;"></div>'}
+                            <div style="display: flex; gap: 8px; width: 100%; justify-content: center; margin-top: auto;">
+                                <button class="btn btn-ghost btn-sm" data-plate-edit="${index}">✏️ แก้ไข</button>
+                                <button class="btn btn-soft-danger btn-sm" onclick="removePlateTarget(${index})">🗑️ ลบ</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                grid.innerHTML = html;
+                grid.querySelectorAll("[data-plate-edit]").forEach(btn => {
+                    const index = Number(btn.dataset.plateEdit);
+                    const target = targets[index] || {};
+                    btn.addEventListener("click", () => editPlateTarget(index, target.plate || "", target.note || ""));
+                });
+            } catch(e) {
+                console.error("Error loading plate targets:", e);
+                document.getElementById("plate-grid").innerHTML = `<p class="empty-state" style="color: var(--danger);">ไม่สามารถโหลดข้อมูลทะเบียนเป้าหมายได้</p>`;
+            }
+        }
+
+        async function addPlateTarget(e) {
+            e.preventDefault();
+            const plateInput = document.getElementById("plate_number");
+            const noteInput = document.getElementById("plate_note");
+            const plate = plateInput.value.trim();
+            const note = noteInput.value.trim();
+
+            if (!plate) {
+                showToast("⚠️ กรุณาระบุหมายเลขป้ายทะเบียน", true);
+                return;
+            }
+
+            const btn = document.getElementById("btn-add-plate");
+            btn.disabled = true;
+            btn.innerText = "⏳ กำลังบันทึก...";
+
+            try {
+                const formData = new FormData();
+                formData.append("plate", plate);
+                formData.append("note", note);
+
+                const res = await fetch(`${API_URL}/add_plate_target`, { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    showToast("✅ " + data.message);
+                    document.getElementById("add-plate-form").reset();
+                    loadPlateTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch(err) {
+                showToast("❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์", true);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "➕ เพิ่มป้ายทะเบียน";
+            }
+        }
+
+        async function removePlateTarget(index) {
+            if (!confirm("คุณต้องการลบทะเบียนเป้าหมายนี้หรือไม่?")) return;
+
+            try {
+                const res = await fetch(`${API_URL}/remove_plate_target/${index}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showToast("✅ " + data.message);
+                    loadPlateTargets();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch(e) {
+                showToast("❌ เกิดข้อผิดพลาดในการลบเป้าหมาย", true);
+            }
+        }
+
+        async function editPlateTarget(index, currentPlate, currentNote) {
+            const { value: formValues } = await Swal.fire({
+                title: '✏️ แก้ไขป้ายทะเบียนเป้าหมาย',
+                html:
+                    `<div style="text-align: left; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem;">หมายเลขป้ายทะเบียน:</div>` +
+                    `<input id="swal-plate-number" class="swal2-input" type="text" value="${escapeHTML(currentPlate)}" placeholder="เช่น 1กข9999" style="margin-top: 0; margin-bottom: 15px; width: 100%; box-sizing: border-box; font-family: var(--font-body);">` +
+                    `<div style="text-align: left; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem;">รายละเอียด / หมายเหตุ:</div>` +
+                    `<input id="swal-plate-note" class="swal2-input" type="text" value="${escapeHTML(currentNote)}" placeholder="รายละเอียด เช่น รถกระบะ Toyota สีเงิน" style="margin-top: 0; margin-bottom: 0; width: 100%; box-sizing: border-box; font-family: var(--font-body);">`,
+                focusConfirm: false,
+                showCancelButton: true,
+                confirmButtonText: '💾 บันทึก',
+                cancelButtonText: 'ยกเลิก',
+                preConfirm: () => {
+                    const plateVal = document.getElementById('swal-plate-number').value.trim();
+                    if (!plateVal) {
+                        Swal.showValidationMessage('กรุณาระบุหมายเลขป้ายทะเบียน');
+                        return false;
+                    }
+                    return {
+                        plate: plateVal,
+                        note: document.getElementById('swal-plate-note').value.trim()
+                    };
+                }
+            });
+
+            if (formValues) {
+                const formData = new FormData();
+                formData.append("plate", formValues.plate);
+                formData.append("note", formValues.note);
+
+                try {
+                    const res = await fetch(`${API_URL}/edit_plate_target/${index}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        showToast("✅ แก้ไขข้อมูลทะเบียนเป้าหมายสำเร็จ!");
+                        loadPlateTargets();
+                    } else {
+                        showToast("❌ " + data.message, true);
+                    }
+                } catch(e) {
+                    showToast("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ", true);
+                }
+            }
+        }
+
+        function hideLoader() {
+            const loader = document.getElementById("page-loader");
+            if (loader) {
+                loader.style.opacity = "0";
+                loader.style.visibility = "hidden";
+                setTimeout(() => loader.remove(), 500);
+            }
+        }
+
+        window.onload = async () => {
+            try {
+                await Promise.all([loadTargets(), loadVehicleTargets(), loadPlateTargets()]);
+            } catch(e) {
+                console.error(e);
+            } finally {
+                hideLoader();
+            }
+        };
+    </script>
+</body>
+</html>

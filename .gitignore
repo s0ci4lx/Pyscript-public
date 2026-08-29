@@ -1,0 +1,43 @@
+# Python and virtual environment
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+venv/
+env/
+
+# Logs
+backend.log
+*.log
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+cctv.db
+history.db
+
+# Configuration and Local State (Personal Camera URLs, Targets)
+cameras.json
+plate_targets.json
+vehicle_targets.json
+config.json
+
+# Image/Video & Embedding Data Directories
+uploads/
+alerts/
+targets/
+vehicle_targets/
+*.npy
+
+# Pretrained Weights (Auto-downloaded by Ultralytics / OpenCV on first run)
+# Uncomment below if you do not want to push .pt weights to git
+# *.pt

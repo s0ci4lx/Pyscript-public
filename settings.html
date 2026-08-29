@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตั้งค่ากล้อง CCTV</title>
+    <link rel="stylesheet" href="app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .settings-container {
+            max-width: 800px;
+        }
+
+        .settings-container .glass-card {
+            margin-bottom: 24px;
+        }
+
+        .section-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--primary-soft);
+            font-size: 1.05rem;
+            flex-shrink: 0;
+        }
+
+        .section-icon.red { background: var(--danger-soft); }
+        .section-icon.orange { background: var(--warning-soft); }
+
+        .camera-url-cell {
+            word-break: break-all;
+            font-size: 0.88em;
+            color: var(--text-muted);
+        }
+
+        #telegram_bot_token {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--surface);
+            color: var(--text-main);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            line-height: 1.5;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="toast" class="toast">Notification Message</div>
+
+    <!-- Navbar -->
+    
+    <div class="browser-window">
+        <div class="browser-header">
+            <div class="mac-dots">
+                <div class="mac-dot mac-close"></div>
+                <div class="mac-dot mac-min"></div>
+                <div class="mac-dot mac-max"></div>
+            </div>
+            <div class="browser-url-bar">
+                🔒 https://ai-cctv.local/
+            </div>
+        </div>
+        <div class="browser-content">
+<nav class="navbar">
+        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <div class="nav-links">
+            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
+            <a href="history.html" class="nav-link">🕒 ประวัติการตรวจจับ</a>
+            <div class="nav-dropdown">
+                <span class="nav-link active">⚙️ จัดการระบบ ▾</span>
+                <div class="dropdown-content">
+                    <a href="targets.html" class="dropdown-item">👥 จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item active">⚙️ ตั้งค่าระบบและกล้อง</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <h1>ตั้งค่า<span>ระบบและกล้อง</span></h1>
+        <p>เพิ่มกล้อง อัปโหลดวิดีโอ และปรับแต่งการทำงานของระบบ</p>
+    </header>
+
+    <main class="container settings-container">
+    
+        <div class="glass-card">
+            <h2><span class="section-icon">🧠</span> โมเดล AI (YOLO Model)</h2>
+            <p>เลือกขนาดโมเดลที่ต้องการใช้งาน (มีผลต่อความแม่นยำและความเร็ว)</p>
+            <div class="form-group" style="margin-top: 16px;">
+                <label>เลือกโมเดล (มีผลทันที)</label>
+                <select id="yolo-model-select" onchange="changeYoloModel()" style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 15px; background: white; margin-top: 8px;">
+                    <option value="yolov8n.pt">yolov8n.pt (Nano - รวดเร็วสุด เหมาะกับกล้องหลายตัว)</option>
+                    <option value="yolov8s.pt">yolov8s.pt (Small - แม่นยำปานกลาง แนะนำ)</option>
+                    <option value="yolov8m.pt">yolov8m.pt (Medium - แม่นยำสูง กินสเปค)</option>
+                    <option value="yolov8s-world.pt">yolov8s-world.pt (YOLO-World - ค้นหาด้วยข้อความอิสระ)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon">➕</span> เพิ่มกล้องใหม่</h2>
+            <p>รองรับกล้อง RTSP และ Webcam</p>
+            <form id="add-camera-form" onsubmit="addCamera(event)">
+                <div class="form-group">
+                    <label>ชื่อกล้อง (เช่น CCTV หน้าบ้าน)</label>
+                    <input type="text" id="cam_name" required placeholder="ใส่ชื่อกล้อง">
+                </div>
+                <div class="form-group">
+                    <label>RTSP URL (หรือใส่ 0 สำหรับ Webcam)</label>
+                    <input type="text" id="cam_url" required placeholder="rtsp://username:password@camera-ip:554/...">
+                </div>
+                <button type="submit" class="btn btn-primary">บันทึกกล้อง</button>
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon">📹</span> อัปโหลดไฟล์วิดีโอเพื่อประมวลผล</h2>
+            <p>รองรับไฟล์ .mp4, .avi, .mkv</p>
+            <form id="upload-video-form" onsubmit="uploadVideo(event)">
+                <div class="form-group">
+                    <input type="file" id="video_file" accept="video/*" required>
+                </div>
+                <button type="submit" class="btn btn-primary" id="btn-upload">อัปโหลดวิดีโอ</button>
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon red">🔴</span> ประมวลผลจากลิงก์ YouTube</h2>
+            <p>ดึงภาพสตรีมจากวิดีโอหรือไลฟ์ YouTube มาประมวลผล</p>
+            <form id="youtube-form" onsubmit="addYouTubeCamera(event)">
+                <div class="form-group">
+                    <label>ใส่ลิงก์ YouTube</label>
+                    <input type="url" id="youtube_url" required placeholder="https://www.youtube.com/watch?v=...">
+                </div>
+                <button type="submit" class="btn btn-danger" id="btn-yt">เริ่มสตรีม YouTube</button>
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon orange">🖥️</span> ประมวลผลจากการแคปหน้าจอ (Screen)</h2>
+            <p>จับภาพหน้าจอคอมพิวเตอร์แบบเรียลไทม์เพื่อนำมาประมวลผล</p>
+            <form id="screen-form" onsubmit="addScreenCamera(event)">
+                <button type="submit" class="btn btn-warning" id="btn-screen" style="background-color: var(--warning); color: #fff;">เพิ่มกล้องหน้าจอ (Screen Capture)</button>
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon orange">⚙️</span> ตั้งค่าระบบทั่วไป</h2>
+            <p>ปรับพฤติกรรมการบันทึกข้อมูลของระบบ</p>
+            <div class="form-group">
+                <label>การบันทึกภาพบุคคลทั่วไป (Unknown)</label>
+                <select id="save_unknown_faces" onchange="updateSystemSettings()">
+                    <option value="true">บันทึกภาพและประวัติบุคคลทั่วไป (ใช้พื้นที่เยอะ)</option>
+                    <option value="false">ไม่บันทึกภาพบุคคลทั่วไป (บันทึกเฉพาะเป้าหมาย)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>การแสดงผลบนหน้าจอวิดีโอ</label>
+                <select id="show_only_targets" onchange="updateSystemSettings()">
+                    <option value="false">แสดงเส้นขอบสำหรับวัตถุทั้งหมด (สีเขียว)</option>
+                    <option value="true">ตีกรอบเฉพาะเป้าหมายที่ค้นหาเท่านั้น (ซ่อนเส้นสีเขียว)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="glass-card" style="border: 1px solid rgba(0, 136, 204, 0.35); background: linear-gradient(180deg, rgba(16, 26, 40, 0.75) 0%, rgba(12, 18, 28, 0.75) 100%);">
+            <h2><span class="section-icon" style="color: #00a8ff;">✈️</span> ตั้งค่าการแจ้งเตือน Telegram (Telegram Alert)</h2>
+            <p>ส่งภาพเปรียบเทียบ (ภาพเป้าหมาย vs ภาพตรวจพบสด) พร้อมระบุ % ความเหมือน และชื่อเป้าหมายไปยัง Telegram ทันที</p>
+            
+            <form id="telegram-form" onsubmit="saveTelegramSettings(event)">
+                <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+                    <label style="margin: 0; font-weight: 600; cursor: pointer;" for="telegram_enabled">เปิดใช้งานการแจ้งเตือน Telegram</label>
+                    <input type="checkbox" id="telegram_enabled" style="width: 20px; height: 20px; cursor: pointer; accent-color: #0088cc;">
+                </div>
+
+                <div class="form-group">
+                    <label>Telegram Bot Token</label>
+                    <input type="password" id="telegram_bot_token" placeholder="เช่น 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ">
+                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">วิธีขอ: ทักแชทหา <a href="https://t.me/BotFather" target="_blank" style="color: #00a8ff; text-decoration: underline;">@BotFather</a> ใน Telegram พิมพ์ <code>/newbot</code> แล้วคัดลอก HTTP API Token มาวาง</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Telegram Chat ID (หรือ Group ID)</label>
+                    <input type="text" id="telegram_chat_id" placeholder="เช่น 12345678 หรือ -100123456789">
+                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">วิธีดู ID: ทักหาบอท <a href="https://t.me/userinfobot" target="_blank" style="color: #00a8ff; text-decoration: underline;">@userinfobot</a> หรือดึงบอทเข้ากลุ่มแล้วพิมพ์ข้อความ</small>
+                </div>
+
+                <div class="form-group">
+                    <label>หน่วงเวลาไม่ให้ส่งแจ้งเตือนซ้ำ (Cooldown วินาที)</label>
+                    <input type="number" id="telegram_cooldown" min="5" max="3600" value="30">
+                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">ป้องกันไม่ให้บอทส่งข้อความรัวเกินไปเมื่อเป้าหมายยังอยู่ในเฟรม (แนะนำ 30 - 60 วินาที)</small>
+                </div>
+
+                <div class="form-group" style="background: rgba(0,0,0,0.2); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+                    <label style="margin-bottom: 8px; display: block; font-weight: 600;">ประเภทเป้าหมายที่ต้องการแจ้งเตือน:</label>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem;">
+                            <input type="checkbox" id="telegram_notify_faces" checked style="accent-color: #0088cc;"> 🧑 บุคคลเป้าหมาย
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem;">
+                            <input type="checkbox" id="telegram_notify_vehicles" checked style="accent-color: #0088cc;"> 🚗 ยานพาหนะเป้าหมาย
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem;">
+                            <input type="checkbox" id="telegram_notify_plates" checked style="accent-color: #0088cc;"> 🔤 ป้ายทะเบียนเป้าหมาย
+                        </label>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1; min-width: 200px; background: #0088cc; border: none;">💾 บันทึกการตั้งค่า Telegram</button>
+                    <button type="button" class="btn" onclick="testTelegram()" style="background: rgba(0, 136, 204, 0.2); color: #00a8ff; border: 1px solid rgba(0, 136, 204, 0.4);">🧪 ส่งข้อความทดสอบ</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="glass-card">
+            <h2><span class="section-icon">📋</span> รายการกล้องในระบบ</h2>
+            <table class="camera-table">
+                <thead>
+                    <tr>
+                        <th>ชื่อกล้อง</th>
+                        <th>URL</th>
+                        <th>จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody id="camera-list-tbody">
+                    <tr><td colspan="3" style="text-align:center;">กำลังโหลด...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+    </main>
+
+            </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8081";
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (resource, options = {}) => {
+            const apiKey = localStorage.getItem('cctv_api_key') || '';
+            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
+                const headers = new Headers(options.headers || {});
+                headers.set('X-API-Key', apiKey);
+                options = { ...options, headers };
+            }
+            return nativeFetch(resource, options);
+        };
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
+        function showToast(message, isError=false) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.style.backgroundColor = isError ? "#e5484d" : "#14a37f";
+            toast.style.visibility = "visible";
+            toast.style.opacity = "1";
+            toast.style.bottom = "48px";
+            setTimeout(() => {
+                toast.style.opacity = "0";
+                toast.style.bottom = "28px";
+                setTimeout(() => toast.style.visibility = "hidden", 500);
+            }, 3000);
+        }
+
+        async function loadSettings() {
+            try {
+                await loadCameras();
+                await fetchSystemSettings();
+                
+                // Load YOLO model
+                const modelRes = await fetch(`${API_URL}/get_yolo_model`);
+                const modelData = await modelRes.json();
+                if(modelData && modelData.yolo_model) {
+                    document.getElementById('yolo-model-select').value = modelData.yolo_model;
+                }
+                
+            } catch (error) {
+                console.error("Error loading settings:", error);
+            }
+        }
+
+        async function loadCameras() {
+            try {
+                const res = await fetch(`${API_URL}/cameras`);
+                const cameras = await res.json();
+                const tbody = document.getElementById("camera-list-tbody");
+                tbody.innerHTML = "";
+
+                cameras.forEach(cam => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${escapeHTML(cam.name)}</td>
+                        <td class="camera-url-cell">${escapeHTML(cam.url)}</td>
+                        <td>
+                            ${cam.id !== 'webcam'
+                                ? `<button class="btn btn-soft-danger btn-sm" data-camera-id="${escapeHTML(cam.id)}">🗑️ ลบ</button>`
+                                : `<span class="muted" style="font-size: 0.85em;">ค่าเริ่มต้น</span>`
+                            }
+                        </td>
+                    `;
+                    const removeBtn = tr.querySelector("[data-camera-id]");
+                    if (removeBtn) removeBtn.addEventListener("click", () => removeCamera(removeBtn.dataset.cameraId));
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error(err);
+                document.getElementById("camera-list-tbody").innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--danger);">ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้</td></tr>`;
+            }
+        }
+
+        async function changeYoloModel() {
+            const select = document.getElementById('yolo-model-select');
+            const newModel = select.value;
+            
+            const formData = new FormData();
+            formData.append("model_name", newModel);
+            
+            showToast("⏳ กำลังโหลดโมเดลใหม่ โปรดรอสักครู่...", false);
+            select.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_URL}/set_yolo_model`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const resData = await response.json();
+                if (resData.status === 'success') {
+                    showToast("✅ เปลี่ยนโมเดล AI สำเร็จ");
+                } else {
+                    showToast("❌ เกิดข้อผิดพลาดในการโหลดโมเดล", true);
+                }
+            } catch(e) {
+                showToast("❌ ขัดข้อง ไม่สามารถติดต่อ Backend", true);
+            }
+            select.disabled = false;
+        }
+
+        async function addCamera(e) {
+            e.preventDefault();
+            const name = document.getElementById("cam_name").value;
+            const url = document.getElementById("cam_url").value;
+
+            const formData = new FormData();
+            formData.append("name", name);
+            formData.append("url", url);
+
+            try {
+                const res = await fetch(`${API_URL}/add_camera`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                showToast("✅ เพิ่มกล้องสำเร็จ!");
+                document.getElementById("add-camera-form").reset();
+                loadCameras();
+            } catch (err) {
+                showToast("❌ เพิ่มกล้องไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง", true);
+            }
+        }
+
+        async function uploadVideo(event) {
+            event.preventDefault();
+            const fileInput = document.getElementById("video_file");
+            if (fileInput.files.length === 0) {
+                showToast("❌ กรุณาเลือกไฟล์วิดีโอ", true);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const btn = document.getElementById("btn-upload");
+            btn.innerText = "กำลังอัปโหลด...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`${API_URL}/upload_video`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if(data.status === 'success') {
+                    showToast("✅ อัปโหลดและเริ่มประมวลผลแล้ว!");
+                    document.getElementById("upload-video-form").reset();
+                    loadCameras(); // refresh the list to show the new video
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ อัปโหลดไม่สำเร็จ หรือไฟล์ใหญ่เกินไป", true);
+            } finally {
+                btn.innerText = "อัปโหลดวิดีโอ";
+                btn.disabled = false;
+            }
+        }
+
+        async function addYouTubeCamera(event) {
+            event.preventDefault();
+            const url = document.getElementById("youtube_url").value;
+
+            const btn = document.getElementById("btn-yt");
+            btn.innerText = "กำลังดึงข้อมูลสตรีม...";
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append("youtube_url", url);
+
+            try {
+                const res = await fetch(`${API_URL}/add_youtube`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if(data.status === 'success') {
+                    showToast("✅ ดึงภาพสำเร็จและเริ่มประมวลผลแล้ว!");
+                    document.getElementById("youtube-form").reset();
+                    loadCameras();
+                } else {
+                    showToast("❌ " + data.message, true);
+                }
+            } catch (err) {
+                showToast("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ", true);
+            } finally {
+                btn.innerText = "เริ่มสตรีม YouTube";
+                btn.disabled = false;
+            }
+        }
+
+        async function addScreenCamera(event) {
+            event.preventDefault();
+            const btn = document.getElementById("btn-screen");
+            btn.innerText = "กำลังเพิ่ม...";
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append("name", "แคปหน้าจอ (Screen Capture)");
+            formData.append("url", "screen");
+
+            try {
+                const res = await fetch(`${API_URL}/add_camera`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                
+                showToast("✅ เพิ่มกล้องหน้าจอสำเร็จ!");
+                loadCameras();
+            } catch (err) {
+                showToast("❌ เพิ่มกล้องไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง", true);
+            } finally {
+                btn.innerText = "เพิ่มกล้องหน้าจอ (Screen Capture)";
+                btn.disabled = false;
+            }
+        }
+
+        async function removeCamera(id) {
+            if(!confirm("ต้องการลบกล้องนี้ใช่หรือไม่?")) return;
+            try {
+                const res = await fetch(`${API_URL}/remove_camera/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    loadCameras();
+                    showToast("✅ ลบกล้องสำเร็จ");
+                }
+            } catch (err) {
+                showToast("❌ ลบกล้องไม่สำเร็จ", true);
+            }
+        }
+
+        async function fetchSystemSettings() {
+            try {
+                const res = await fetch(`${API_URL}/system_settings`);
+                const data = await res.json();
+                document.getElementById("save_unknown_faces").value = data.save_unknown_faces ? "true" : "false";
+                document.getElementById("show_only_targets").value = data.show_only_targets ? "true" : "false";
+                
+                // Telegram Settings
+                if (document.getElementById("telegram_enabled")) {
+                    document.getElementById("telegram_enabled").checked = Boolean(data.telegram_enabled);
+                    const tokenInput = document.getElementById("telegram_bot_token");
+                    tokenInput.value = "";
+                    tokenInput.placeholder = data.telegram_bot_token_configured
+                        ? `บันทึก token แล้ว (${data.telegram_bot_token_masked || "ซ่อนค่า"}) - กรอกใหม่เมื่อต้องการเปลี่ยน`
+                        : "เช่น 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ";
+                    document.getElementById("telegram_chat_id").value = data.telegram_chat_id || "";
+                    document.getElementById("telegram_cooldown").value = data.telegram_cooldown || 30;
+                    document.getElementById("telegram_notify_faces").checked = data.telegram_notify_faces !== false;
+                    document.getElementById("telegram_notify_vehicles").checked = data.telegram_notify_vehicles !== false;
+                    document.getElementById("telegram_notify_plates").checked = data.telegram_notify_plates !== false;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function updateSystemSettings() {
+            const val = document.getElementById("save_unknown_faces").value === "true";
+            const showOnlyTargets = document.getElementById("show_only_targets").value === "true";
+            try {
+                const res = await fetch(`${API_URL}/update_settings`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        save_unknown_faces: val,
+                        show_only_targets: showOnlyTargets
+                    })
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    showToast("✅ อัปเดตการตั้งค่าเรียบร้อย");
+                } else {
+                    showToast("❌ อัปเดตการตั้งค่าไม่สำเร็จ", true);
+                }
+            } catch (e) {
+                showToast("❌ อัปเดตการตั้งค่าไม่สำเร็จ", true);
+            }
+        }
+
+        async function saveTelegramSettings(e) {
+            if (e) e.preventDefault();
+            const enabled = document.getElementById("telegram_enabled").checked;
+            const botToken = document.getElementById("telegram_bot_token").value.trim();
+            const chatId = document.getElementById("telegram_chat_id").value.trim();
+            const cooldown = parseInt(document.getElementById("telegram_cooldown").value) || 30;
+            const notifyFaces = document.getElementById("telegram_notify_faces").checked;
+            const notifyVehicles = document.getElementById("telegram_notify_vehicles").checked;
+            const notifyPlates = document.getElementById("telegram_notify_plates").checked;
+
+            try {
+                const payload = {
+                    telegram_enabled: enabled,
+                    telegram_chat_id: chatId,
+                    telegram_cooldown: cooldown,
+                    telegram_notify_faces: notifyFaces,
+                    telegram_notify_vehicles: notifyVehicles,
+                    telegram_notify_plates: notifyPlates
+                };
+                if (botToken) {
+                    payload.telegram_bot_token = botToken;
+                }
+
+                const res = await fetch(`${API_URL}/update_settings`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showToast("✅ บันทึกการตั้งค่า Telegram เรียบร้อยแล้ว");
+                } else {
+                    showToast("❌ " + (data.message || "บันทึกไม่สำเร็จ"), true);
+                }
+            } catch (err) {
+                showToast("❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์", true);
+            }
+        }
+
+        async function testTelegram() {
+            const botToken = document.getElementById("telegram_bot_token").value.trim();
+            const chatId = document.getElementById("telegram_chat_id").value.trim();
+
+            if (!botToken || !chatId) {
+                showToast("⚠️ กรุณาระบุ Bot Token และ Chat ID ก่อนทดสอบ", true);
+                return;
+            }
+
+            showToast("⏳ กำลังส่งข้อความทดสอบไปยัง Telegram...");
+            try {
+                const res = await fetch(`${API_URL}/test_telegram`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        bot_token: botToken,
+                        chat_id: chatId
+                    })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showToast("✈️ " + data.message);
+                } else {
+                    showToast("❌ " + (data.message || "ส่งข้อความไม่สำเร็จ"), true);
+                }
+            } catch (err) {
+                showToast("❌ เกิดข้อผิดพลาดในการทดสอบ Telegram", true);
+            }
+        }
+
+        window.onload = loadSettings;
+    </script>
+</body>
+</html>

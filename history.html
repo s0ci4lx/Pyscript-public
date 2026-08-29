@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ประวัติการตรวจจับ - CCTV AI</title>
+    <link rel="stylesheet" href="app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .history-container {
+            max-width: 1200px;
+        }
+
+        .filter-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            padding: 20px 24px;
+        }
+
+        .filter-fields {
+            display: flex;
+            gap: 14px;
+            align-items: flex-end;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin-top: 4px;
+            border-top: 1px dashed var(--border);
+            padding-top: 16px;
+        }
+
+        .history-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .history-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .history-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .history-img-container {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            background: var(--surface-2);
+        }
+
+        .history-img-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            cursor: zoom-in;
+        }
+
+        .history-checkbox {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 20px;
+            height: 20px;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .history-info {
+            padding: 16px;
+        }
+
+        .history-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .history-name {
+            font-family: var(--font-head);
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .history-detail {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .modal-content {
+            max-width: 90%;
+            max-height: 90%;
+        }
+
+        .close-modal {
+            position: fixed;
+            top: 18px;
+            right: 30px;
+            color: #e2e8f0;
+            font-size: 38px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Global Page Loader -->
+    <div id="page-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.5s ease, visibility 0.5s;">
+        <div style="width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+        <div style="color: #ffffff; font-family: var(--font-head); font-size: 1.2rem; font-weight: 500; letter-spacing: 0.5px;">กำลังโหลดประวัติการแจ้งเตือน...</div>
+    </div>
+    <div id="toast" class="toast">Notification Message</div>
+
+    <!-- Navbar -->
+    
+    <div class="browser-window">
+        <div class="browser-header">
+            <div class="mac-dots">
+                <div class="mac-dot mac-close"></div>
+                <div class="mac-dot mac-min"></div>
+                <div class="mac-dot mac-max"></div>
+            </div>
+            <div class="browser-url-bar">
+                🔒 https://ai-cctv.local/
+            </div>
+        </div>
+        <div class="browser-content">
+<nav class="navbar">
+        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <div class="nav-links">
+            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
+            <a href="history.html" class="nav-link active">🕒 ประวัติการตรวจจับ</a>
+            <div class="nav-dropdown">
+                <span class="nav-link">⚙️ จัดการระบบ ▾</span>
+                <div class="dropdown-content">
+                    <a href="targets.html" class="dropdown-item">👥 จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item">⚙️ ตั้งค่าระบบและกล้อง</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <h1>AI CCTV <span>History</span></h1>
+        <p>ประวัติการตรวจจับบุคคลเป้าหมาย</p>
+    </header>
+
+    <main class="container history-container">
+        <div class="glass-card filter-panel">
+            <!-- Left Side: Filters and Search -->
+            <div class="filter-fields">
+                <div class="field">
+                    <label>วันที่เริ่มต้น</label>
+                    <input type="date" id="start_date">
+                </div>
+                <div class="field">
+                    <label>วันที่สิ้นสุด</label>
+                    <input type="date" id="end_date">
+                </div>
+                <div class="field">
+                    <label>เป้าหมาย</label>
+                    <input type="text" id="target_name" placeholder="ชื่อเป้าหมาย">
+                </div>
+                <div class="field">
+                    <label>เลขทะเบียน</label>
+                    <input type="text" id="license_plate" placeholder="เช่น 3กข1234" style="width: 140px;">
+                </div>
+                <div class="field" style="width: 130px;">
+                    <label>ประเภทรถ</label>
+                    <select id="vehicle_type">
+                        <option value="">ทั้งหมด</option>
+                        <option value="รถเก๋ง">รถเก๋ง</option>
+                        <option value="รถกระบะ">รถกระบะ</option>
+                        <option value="รถมอเตอร์ไซค์">รถมอเตอร์ไซค์</option>
+                        <option value="รถบัส">รถบัส</option>
+                        <option value="รถจักรยาน">รถจักรยาน</option>
+                    </select>
+                </div>
+                <div class="field" style="width: 100px;">
+                    <label>สีรถ</label>
+                    <select id="vehicle_color">
+                        <option value="">ทั้งหมด</option>
+                        <option value="ขาว">ขาว</option>
+                        <option value="ดำ">ดำ</option>
+                        <option value="เทา">เทา</option>
+                        <option value="แดง">แดง</option>
+                        <option value="น้ำเงิน">น้ำเงิน</option>
+                        <option value="เขียว">เขียว</option>
+                        <option value="เหลือง">เหลือง</option>
+                    </select>
+                </div>
+                <div class="field" style="width: 170px;">
+                    <label>ประเภทบุคคล/เป้าหมาย</label>
+                    <select id="person_type">
+                        <option value="all">ทั้งหมด</option>
+                        <option value="target">เฉพาะเป้าหมาย</option>
+                        <option value="plate_target">💳 เฉพาะทะเบียนเป้าหมาย</option>
+                        <option value="unknown">เฉพาะทั่วไป</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="loadHistory()">🔍 ค้นหา</button>
+            </div>
+
+            <!-- Right Side: Bulk Actions -->
+            <div class="filter-actions">
+                <label class="check-pill">
+                    <input type="checkbox" id="selectAllCheckbox" onchange="selectAll(this)">
+                    เลือกทั้งหมด
+                </label>
+                <button class="btn btn-danger" onclick="bulkDelete()">🗑️ ลบที่เลือก</button>
+            </div>
+        </div>
+
+        <div style="margin: 16px 8px 12px 8px; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.95rem; font-weight: 600; flex-wrap: wrap; gap: 10px;">
+            <div id="results-count">🔍 พบประวัติการตรวจจับทั้งหมด: 0 รายการ</div>
+            <button class="btn btn-primary" id="btn-trace-route" onclick="traceRouteFromInput()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; padding: 8px 16px; background: linear-gradient(135deg, #2563eb, #1d4ed8); border-radius: var(--radius-sm); border: none; font-weight: 600;">🗺️ ไล่เส้นทางผ่านกล้อง (Route Timeline)</button>
+        </div>
+
+        <div id="history-results" class="history-grid">
+            <!-- Results will be injected here -->
+            <div class="empty-state">กำลังโหลดข้อมูล...</div>
+        </div>
+    </main>
+
+    <!-- Modal for Route Timeline -->
+    <div id="routeModal" class="modal" onclick="closeRouteModal()" style="cursor: default;">
+        <span class="close-modal" onclick="closeRouteModal()">&times;</span>
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 850px; width: 92%; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; margin: auto;" onclick="event.stopPropagation()">
+            <h2 id="route-modal-title" style="color: var(--primary); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-family: var(--font-head);">🗺️ เส้นทางผ่านกล้อง (Route Timeline)</h2>
+            <div id="route-modal-subtitle" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 24px; border-bottom: 1px dashed var(--border); padding-bottom: 12px;"></div>
+            
+            <div id="route-timeline-content" style="display: flex; flex-direction: column; gap: 16px; position: relative;">
+                <!-- Timeline items injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- The Modal for Full Image -->
+    <div id="imageModal" class="modal" onclick="closeModal()" style="cursor: zoom-out;">
+
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <button id="btn-prev-img" onclick="prevImage(event)" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10094;</button>
+        <button id="btn-next-img" onclick="nextImage(event)" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10095;</button>
+        <div style="display: flex; flex-direction: column; align-items: center; max-width: 95%; max-height: 95%; position: relative;" onclick="event.stopPropagation()">
+            
+            <div id="modal-comparison-container" style="display: flex; gap: 20px; justify-content: center; align-items: center; margin-bottom: 12px; flex-wrap: nowrap; max-width: 100%;">
+                <!-- Reference Target -->
+                <div id="modal-ref-box" style="display: none; flex-direction: column; align-items: center;">
+                    <div style="color: #e2e8f0; font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 20px;">👤 ภาพเป้าหมายอ้างอิง</div>
+                    <img id="modalRefImg" style="max-height: 40vh; max-width: 42vw; object-fit: contain; border-radius: 12px; box-shadow: var(--shadow-lg); border: 2px solid var(--primary); display: block;">
+                </div>
+                <!-- Detected Target -->
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div id="modal-detect-label" style="color: #e2e8f0; font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 20px; display: none;">📸 ภาพที่ตรวจพบ</div>
+                    <img class="modal-content" id="modalImg" style="max-height: 40vh; max-width: 42vw; object-fit: contain; border-radius: 12px; box-shadow: var(--shadow-lg); display: block;">
+                </div>
+            </div>
+
+            <div id="modal-info-text" style="color: #ffffff; font-size: 1.1rem; font-weight: bold; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: center;"></div>
+
+            <div style="margin-top: 16px; display: flex; gap: 10px; justify-content: center;">
+                <button id="btn-crop-img" onclick="switchModalImg('crop')" class="btn btn-primary">🔍 ซูมเป้าหมาย</button>
+                <button id="btn-full-img" onclick="switchModalImg('full')" class="btn btn-ghost">🖼️ ภาพมุมกว้าง</button>
+                <button id="btn-edit-color" onclick="editVehicleColor()" class="btn btn-ghost" style="display: none;">🎨 แก้ไขสีรถ</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8081";
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (resource, options = {}) => {
+            const apiKey = localStorage.getItem('cctv_api_key') || '';
+            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
+                const headers = new Headers(options.headers || {});
+                headers.set('X-API-Key', apiKey);
+                options = { ...options, headers };
+            }
+            return nativeFetch(resource, options);
+        };
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+        function safeMediaUrl(value) {
+            const url = String(value || '');
+            if (url.startsWith(`${API_URL}/alerts_img/`) ||
+                url.startsWith(`${API_URL}/targets_img/`) ||
+                url.startsWith(`${API_URL}/vehicle_targets_img/`)) {
+                return url.replace(/["']/g, ch => encodeURIComponent(ch));
+            }
+            return '';
+        }
+        let currentHistoryData = [];
+        let currentModalImageIndex = 0;
+        let currentCropUrl = "";
+        let currentFullUrl = "";
+        let faceTargetsMap = {};
+        let vehicleTargetsMap = {};
+
+        async function loadTargetsMap() {
+            try {
+                // โหลดใบหน้าเป้าหมาย
+                const res = await fetch(`${API_URL}/targets_list`);
+                const targets = await res.json();
+                faceTargetsMap = {};
+                targets.forEach(t => {
+                    faceTargetsMap[t.base_name] = `${API_URL}/targets_img/${t.filename}`;
+                });
+
+                // โหลดรถเป้าหมาย
+                const resV = await fetch(`${API_URL}/vehicle_targets_list`);
+                const targetsV = await resV.json();
+                vehicleTargetsMap = {};
+                targetsV.forEach(t => {
+                    if (t.filename) {
+                        const cleanName = t.raw.split(" (เฉพาะคัน)")[0];
+                        vehicleTargetsMap[cleanName] = `${API_URL}/vehicle_targets_img/${t.filename}`;
+                        vehicleTargetsMap[t.raw] = `${API_URL}/vehicle_targets_img/${t.filename}`;
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to load targets mapping", e);
+            }
+        }
+
+        // Set default dates (Today to Today) using local time
+        function setDefaultDates() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            const todayStr = `${yyyy}-${mm}-${dd}`;
+
+            document.getElementById('start_date').value = todayStr;
+            document.getElementById('end_date').value = todayStr;
+        }
+
+        async function loadHistory(silent = false) {
+            const resultsDiv = document.getElementById('history-results');
+            if (!silent) {
+                resultsDiv.innerHTML = '<div class="empty-state">กำลังค้นหา...</div>';
+            }
+
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const targetName = document.getElementById('target_name').value;
+            const personType = document.getElementById('person_type').value;
+            const licensePlate = document.getElementById('license_plate').value;
+            const vehicleType = document.getElementById('vehicle_type').value;
+            const vehicleColor = document.getElementById('vehicle_color').value;
+
+            let queryString = "?";
+            if (startDate) queryString += `start_date=${startDate}&`;
+            if (endDate) queryString += `end_date=${endDate}&`;
+            if (targetName) queryString += `name=${encodeURIComponent(targetName)}&`;
+            if (personType) queryString += `person_type=${personType}&`;
+            if (licensePlate) queryString += `license_plate=${encodeURIComponent(licensePlate)}&`;
+            if (vehicleType) queryString += `vehicle_type=${encodeURIComponent(vehicleType)}&`;
+            if (vehicleColor) queryString += `vehicle_color=${encodeURIComponent(vehicleColor)}&`;
+
+            try {
+                const response = await fetch(`${API_URL}/history${queryString}`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    currentHistoryData = result.data || [];
+                    document.getElementById('results-count').innerHTML = `🔍 พบประวัติการตรวจจับทั้งหมด: <strong style="color: var(--primary); font-size: 1.1rem;">${currentHistoryData.length}</strong> รายการ`;
+                    if (currentHistoryData.length === 0) {
+                        resultsDiv.innerHTML = '<div class="empty-state">❌ ไม่พบประวัติการตรวจจับในช่วงเวลาที่กำหนด</div>';
+                        return;
+                    }
+
+                    // Build new HTML string instead of DOM appending one by one for better performance
+                    let newHtml = '';
+                    currentHistoryData.forEach((item, index) => {
+                        const dateObj = new Date(item.timestamp);
+                        const thaiDate = dateObj.toLocaleDateString('th-TH', {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit', second: '2-digit'
+                        });
+
+                        const badgeHtml = item.is_color_edited ? `<span class="color-badge-edited">✓ แก้ไขสีแล้ว</span>` : '';
+                        const fullUrl = safeMediaUrl(item.full_url);
+                        const plateImgUrl = safeMediaUrl(item.plate_img_url);
+                        const cameraText = String(item.camera_url || '');
+
+                        newHtml += `
+                            <div class="history-card">
+                                <div class="history-img-container" style="position: relative;">
+                                    <input type="checkbox" class="history-checkbox" value="${Number(item.id) || 0}">
+                                    <img src="${fullUrl}" alt="Full Image" onclick="openModalByIndex(${index})" title="คลิกเพื่อดูรูปเต็ม">
+                                    ${plateImgUrl ? `
+                                    <div style="position: absolute; right: 6px; bottom: 6px; background: rgba(15, 23, 42, 0.9); border: 1.5px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); max-width: 90px; text-align: center; backdrop-filter: blur(2px);">
+                                        <img src="${plateImgUrl}" style="max-height: 25px; max-width: 100%; object-fit: contain; display: block; border-radius: 2px;" title="ภาพป้ายทะเบียน">
+                                    </div>
+                                    ` : ''}
+                                </div>
+                                <div class="history-info">
+                                    <div class="history-head">
+                                        <div class="history-name">🎯 ${escapeHTML(item.name)} ${badgeHtml}</div>
+                                        <button class="btn btn-soft-danger btn-sm" onclick="deleteHistory(${Number(item.id) || 0})">🗑️ ลบ</button>
+                                    </div>
+                                    <div class="history-detail">🕒 ${escapeHTML(thaiDate)}</div>
+                                    <div class="history-detail">มั่นใจ: ${Number(item.confidence) || 0}%</div>
+                                    <div class="history-detail" style="font-size: 0.8rem;">📷 ${escapeHTML(cameraText.substring(0, 30))}...</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    resultsDiv.innerHTML = newHtml;
+                } else {
+                    if (!silent) resultsDiv.innerHTML = `<div class="empty-state">❌ เกิดข้อผิดพลาด: ${escapeHTML(result.message)}</div>`;
+                }
+            } catch (error) {
+                console.error("Error loading history:", error);
+                if (!silent) resultsDiv.innerHTML = '<div class="empty-state">❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้</div>';
+            }
+        }
+
+        // Modal Functions
+        async function openModalByIndex(index) {
+            if (index < 0 || index >= currentHistoryData.length) return;
+            currentModalImageIndex = index;
+            const item = currentHistoryData[index];
+            currentCropUrl = safeMediaUrl(item.img_url);
+            currentFullUrl = safeMediaUrl(item.full_url || item.img_url);
+
+            const modal = document.getElementById("imageModal");
+            modal.style.display = "flex";
+
+            // โหลดข้อมูลเป้าหมายล่าสุดเสมอ
+            await loadTargetsMap();
+
+            // Comparison view for registered targets
+            const rawName = String(item.name || "").split(" (#")[0];
+            const refImgUrl = faceTargetsMap[rawName] || vehicleTargetsMap[rawName];
+            const refBox = document.getElementById("modal-ref-box");
+            const detectLabel = document.getElementById("modal-detect-label");
+            const infoText = document.getElementById("modal-info-text");
+
+            const badgeText = item.is_color_edited ? ' <span class="color-badge-edited">✓ แก้ไขสีแล้ว</span>' : '';
+            if (refImgUrl) {
+                document.getElementById("modalRefImg").src = safeMediaUrl(refImgUrl);
+                refBox.style.display = "flex";
+                detectLabel.style.display = "block";
+                infoText.innerHTML = `🎯 เปรียบเทียบเป้าหมาย: <strong style="color: var(--primary);">${escapeHTML(rawName)}</strong>${badgeText} (ความเหมือน: <span style="color: #14a37f; font-weight: 800;">${Number(item.confidence) || 0}%</span>)`;
+            } else {
+                refBox.style.display = "none";
+                detectLabel.style.display = "none";
+                infoText.innerHTML = `🎯 ตรวจพบ: ${escapeHTML(item.name)}${badgeText} (ความมั่นใจ: ${Number(item.confidence) || 0}%)`;
+            }
+
+            switchModalImg(refImgUrl ? 'crop' : 'full'); // ซูมเป้าหมายหากมีภาพอ้างอิงเปรียบเทียบ
+            updateModalNavigationButtons();
+            
+            const editColorBtn = document.getElementById("btn-edit-color");
+            if (item.name && item.name.includes("รถ")) {
+                editColorBtn.style.display = "block";
+                if (item.is_color_edited) {
+                    editColorBtn.innerHTML = "✓ แก้ไขสีแล้ว";
+                    editColorBtn.className = "btn btn-success";
+                } else {
+                    editColorBtn.innerHTML = "🎨 แก้ไขสีรถ";
+                    editColorBtn.className = "btn btn-ghost";
+                }
+            } else {
+                editColorBtn.style.display = "none";
+            }
+        }
+
+        async function editVehicleColor() {
+            const item = currentHistoryData[currentModalImageIndex];
+            if (!item || !item.id) {
+                Swal.fire('ข้อผิดพลาด', 'ไม่พบข้อมูล Hit ID ของรถคันนี้', 'error');
+                return;
+            }
+            
+            const { value: color } = await Swal.fire({
+                title: 'แก้ไขสีรถ',
+                input: 'select',
+                inputOptions: {
+                    'ขาว': 'ขาว',
+                    'ดำ': 'ดำ',
+                    'เทา': 'เทา',
+                    'แดง': 'แดง',
+                    'น้ำเงิน': 'น้ำเงิน',
+                    'เขียว': 'เขียว',
+                    'เหลือง': 'เหลือง',
+                    'ส้ม': 'ส้ม',
+                    'ม่วง': 'ม่วง',
+                    'ไม่ระบุสี': 'ไม่ระบุสี'
+                },
+                inputPlaceholder: 'เลือกสีที่ถูกต้อง',
+                showCancelButton: true,
+                confirmButtonText: 'บันทึก',
+                cancelButtonText: 'ยกเลิก',
+                background: 'rgba(30,41,59,0.95)',
+                color: '#fff'
+            });
+
+            if (color) {
+                try {
+                    const response = await fetch(`${API_URL}/train_color`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            hit_id: item.id,
+                            correct_color: color
+                        })
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        Swal.fire('สำเร็จ!', result.message, 'success');
+                        item.is_color_edited = 1;
+                        
+                        // update modal button immediately
+                        const editColorBtn = document.getElementById("btn-edit-color");
+                        editColorBtn.innerHTML = "✓ แก้ไขสีแล้ว";
+                        editColorBtn.className = "btn btn-success";
+                        
+                        // update modal title/info with badge
+                        const rawName = String(item.name || "").split(" (#")[0];
+                        const refImgUrl = faceTargetsMap[rawName] || vehicleTargetsMap[rawName];
+                        const badgeText = ' <span class="color-badge-edited">✓ แก้ไขสีแล้ว</span>';
+                        const infoText = document.getElementById("modal-info-text");
+                        if (refImgUrl) {
+                            infoText.innerHTML = `🎯 เปรียบเทียบเป้าหมาย: <strong style="color: var(--primary);">${escapeHTML(rawName)}</strong>${badgeText} (ความเหมือน: <span style="color: #14a37f; font-weight: 800;">${Number(item.confidence) || 0}%</span>)`;
+                        } else {
+                            infoText.innerHTML = `🎯 ตรวจพบ: ${escapeHTML(item.name)}${badgeText} (ความมั่นใจ: ${Number(item.confidence) || 0}%)`;
+                        }
+
+                        // silently refresh list view
+                        loadHistory(true);
+                    } else {
+                        Swal.fire('ข้อผิดพลาด', result.message, 'error');
+                    }
+                } catch (e) {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', 'error');
+                }
+            }
+        }
+
+        function closeModal() {
+            document.getElementById("imageModal").style.display = "none";
+        }
+
+        function prevImage(e) {
+            if(e) e.stopPropagation();
+            openModalByIndex(currentModalImageIndex - 1);
+        }
+
+        function nextImage(e) {
+            if(e) e.stopPropagation();
+            openModalByIndex(currentModalImageIndex + 1);
+        }
+
+        function switchModalImg(type) {
+            const modalImg = document.getElementById("modalImg");
+            const btnCrop = document.getElementById("btn-crop-img");
+            const btnFull = document.getElementById("btn-full-img");
+
+            if (type === 'crop') {
+                modalImg.src = currentCropUrl;
+                btnCrop.className = "btn btn-primary";
+                btnFull.className = "btn btn-ghost";
+            } else {
+                modalImg.src = currentFullUrl;
+                btnCrop.className = "btn btn-ghost";
+                btnFull.className = "btn btn-primary";
+            }
+        }
+
+        function updateModalNavigationButtons() {
+            const btnPrev = document.getElementById("btn-prev-img");
+            const btnNext = document.getElementById("btn-next-img");
+            btnPrev.style.display = "flex";
+            btnNext.style.display = "flex";
+            if (currentModalImageIndex <= 0) {
+                btnPrev.style.opacity = '0.3';
+                btnPrev.style.pointerEvents = 'none';
+            } else {
+                btnPrev.style.opacity = '1';
+                btnPrev.style.pointerEvents = 'auto';
+            }
+
+            if (currentModalImageIndex >= currentHistoryData.length - 1) {
+                btnNext.style.opacity = '0.3';
+                btnNext.style.pointerEvents = 'none';
+            } else {
+                btnNext.style.opacity = '1';
+                btnNext.style.pointerEvents = 'auto';
+            }
+        }
+        async function deleteHistory(id) {
+            if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบประวัตินี้? ข้อมูลและรูปภาพจะถูกลบถาวร")) return;
+
+            try {
+                const response = await fetch(`${API_URL}/history/${id}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    loadHistory();
+                } else {
+                    alert("Error: " + result.message);
+                }
+            } catch (error) {
+                console.error("Error deleting history:", error);
+                alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+            }
+        }
+
+        function selectAll(checkboxElem) {
+            const checkboxes = document.querySelectorAll('.history-checkbox');
+            const isChecked = checkboxElem.checked;
+
+            checkboxes.forEach(cb => {
+                cb.checked = isChecked;
+            });
+        }
+
+        async function bulkDelete() {
+            const checkboxes = document.querySelectorAll('.history-checkbox:checked');
+            const ids = Array.from(checkboxes).map(cb => cb.value);
+
+            if (ids.length === 0) {
+                alert("กรุณาเลือกรายการที่ต้องการลบอย่างน้อย 1 รายการ");
+                return;
+            }
+
+            if (confirm(`คุณต้องการลบประวัติที่เลือกจำนวน ${ids.length} รายการใช่หรือไม่?`)) {
+                try {
+                    const response = await fetch(`${API_URL}/history/bulk_delete`, {
+                        method: 'DELETE',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ids: ids})
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        // Reset "Select All" checkbox
+                        const selectAllCb = document.getElementById('selectAllCheckbox');
+                        if (selectAllCb) selectAllCb.checked = false;
+                        
+                        loadHistory();
+                    } else {
+                        alert("Error: " + result.message);
+                    }
+                } catch (e) {
+                    alert("Error: " + e.message);
+                }
+            }
+        }
+
+        function traceRouteFromInput() {
+            const inputPlate = document.getElementById("license_plate").value.trim();
+            if (!inputPlate) {
+                Swal.fire({
+                    title: '🗺️ ไล่เส้นทางผ่านกล้อง',
+                    text: 'กรุณาระบุหมายเลขป้ายทะเบียนในช่องค้นหา "เลขทะเบียน"',
+                    icon: 'info',
+                    confirmButtonText: 'ตกลง'
+                });
+                return;
+            }
+            traceRoute(inputPlate);
+        }
+
+        async function traceRoute(plateNumber) {
+            const modal = document.getElementById("routeModal");
+            const titleEl = document.getElementById("route-modal-title");
+            const subTitleEl = document.getElementById("route-modal-subtitle");
+            const contentEl = document.getElementById("route-timeline-content");
+
+            titleEl.innerHTML = `🗺️ เส้นทางผ่านกล้อง (Route Timeline): <span style="color: #f59e0b; margin-left: 8px;">[${escapeHTML(plateNumber)}]</span>`;
+            subTitleEl.innerText = `กำลังดึงข้อมูลลำดับเวลาการขับผ่านกล้องของป้ายทะเบียน ${plateNumber}...`;
+            contentEl.innerHTML = '<div class="empty-state">⏳ กำลังโหลดข้อมูลเส้นทาง...</div>';
+            modal.style.display = "flex";
+
+            try {
+                const res = await fetch(`${API_URL}/route_trace?license_plate=${encodeURIComponent(plateNumber)}`);
+                const result = await res.json();
+
+                if (result.status === 'success' && Array.isArray(result.data)) {
+                    const hits = result.data;
+                    subTitleEl.innerHTML = `พบประวัติการขับผ่านทั้งหมด <strong style="color: var(--primary); font-size: 1.1rem;">${Number(hits.length) || 0}</strong> จุด (เรียงตามลำดับเวลาก่อน-หลัง)`;
+
+                    if (hits.length === 0) {
+                        contentEl.innerHTML = `<div class="empty-state">❌ ไม่พบประวัติการขับผ่านกล้องของป้ายทะเบียน "${escapeHTML(plateNumber)}" ในระบบ</div>`;
+                        return;
+                    }
+
+                    let html = "";
+                    hits.forEach((item, index) => {
+                        const dateObj = new Date(item.timestamp);
+                        const thaiDate = dateObj.toLocaleDateString('th-TH', {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit', second: '2-digit'
+                        });
+                        const plateImgUrl = safeMediaUrl(item.plate_img_url);
+                        const itemImgUrl = safeMediaUrl(item.img_url);
+                        const itemFullUrl = safeMediaUrl(item.full_url || item.img_url);
+
+                        html += `
+                            <div style="display: flex; gap: 16px; align-items: flex-start; position: relative;">
+                                <div style="display: flex; flex-direction: column; align-items: center; min-width: 40px;">
+                                    <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; font-weight: 700; font-size: 1rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(37,99,235,0.3); border: 2px solid #ffffff;">${index + 1}</div>
+                                    ${index < hits.length - 1 ? '<div style="width: 3px; background: var(--border-strong); flex: 1; min-height: 50px; margin-top: 6px; border-radius: 2px;"></div>' : ''}
+                                </div>
+                                <div style="flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 18px; box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
+                                    <div style="flex: 1; min-width: 200px;">
+                                        <div style="font-weight: 700; font-size: 1.05rem; color: var(--primary); margin-bottom: 4px;">📷 ${escapeHTML(item.camera_url)}</div>
+                                        <div style="font-size: 0.9rem; color: var(--text-main); font-weight: 600;">🕒 เวลา: ${escapeHTML(thaiDate)}</div>
+                                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">🎯 ตรวจพบ: ${escapeHTML(item.name)} (ความมั่นใจ: ${Number(item.confidence) || 0}%)</div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        ${plateImgUrl ? `
+                                        <div style="border: 1px solid var(--border); border-radius: 6px; padding: 4px; background: #0f172a; text-align: center;">
+                                            <div style="font-size: 0.7rem; color: #f59e0b; font-weight: bold; margin-bottom: 2px;">LPR CROP</div>
+                                            <img src="${plateImgUrl}" style="max-height: 45px; max-width: 120px; object-fit: contain; border-radius: 3px; display: block;">
+                                        </div>` : ''}
+                                        <img src="${itemImgUrl}" style="width: 80px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;" onclick="window.open('${itemFullUrl}', '_blank')" title="คลิกเพื่อดูรูปขนาดเต็ม">
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    contentEl.innerHTML = html;
+                } else {
+                    contentEl.innerHTML = `<div class="empty-state">❌ เกิดข้อผิดพลาด: ${escapeHTML(result.message || 'ไม่สามารถดึงข้อมูลเส้นทางได้')}</div>`;
+                }
+            } catch(err) {
+                console.error("Error tracing route:", err);
+                contentEl.innerHTML = '<div class="empty-state">❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์</div>';
+            }
+        }
+
+        function closeRouteModal() {
+            const modal = document.getElementById("routeModal");
+            if (modal) modal.style.display = "none";
+        }
+
+        function hideLoader() {
+            const loader = document.getElementById("page-loader");
+            if (loader) {
+                loader.style.opacity = "0";
+                loader.style.visibility = "hidden";
+                setTimeout(() => loader.remove(), 500);
+            }
+        }
+
+
+        // Load on start
+        window.onload = async () => {
+            setDefaultDates();
+            try {
+                await Promise.all([
+                    loadHistory(),
+                    loadTargetsMap()
+                ]);
+            } catch(e) {
+                console.error(e);
+            } finally {
+                hideLoader();
+            }
+            
+            // Auto-refresh every 5 seconds
+            setInterval(() => {
+                const checkboxes = document.querySelectorAll('.history-checkbox:checked');
+                // Only refresh if no checkboxes are currently selected to avoid interrupting bulk delete
+                if (checkboxes.length === 0) {
+                    loadHistory(true);
+                }
+            }, 5000);
+        };
+    </script>
+</body>
+
+</html>
