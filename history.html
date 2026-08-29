@@ -12,37 +12,195 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .history-container {
-            max-width: 1200px;
+            max-width: 1240px;
+        }
+
+        .history-hero {
+            text-align: left;
+            padding: 24px 20px 14px;
+        }
+
+        .history-hero-inner {
+            max-width: 1240px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 24px;
+        }
+
+        .history-hero h1 {
+            font-size: 1.75rem;
+            margin-bottom: 2px;
+            letter-spacing: 0;
+        }
+
+        .history-hero p {
+            margin: 0;
+            max-width: none;
+            font-size: 0.96rem;
+        }
+
+        .history-status {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(92px, 1fr));
+            gap: 8px;
+            min-width: 220px;
+        }
+
+        .status-tile {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 12px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .status-tile span {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .status-tile strong {
+            display: block;
+            color: var(--text-main);
+            font-family: var(--font-head);
+            font-size: 1rem;
+            margin-top: 1px;
         }
 
         .filter-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 24px;
-            padding: 20px 24px;
+            margin-bottom: 12px;
+            padding: 12px 14px;
         }
 
         .filter-fields {
-            display: flex;
-            gap: 14px;
-            align-items: flex-end;
-            justify-content: center;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: 132px 132px minmax(170px, 1.2fr) minmax(140px, 1fr) auto;
+            gap: 10px;
+            align-items: end;
             width: 100%;
         }
 
-        .filter-actions {
+        .filter-panel input,
+        .filter-panel select {
+            min-height: 40px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+        }
+
+        .filter-field-wide {
+            grid-column: auto;
+        }
+
+        .filter-field-actions {
             display: flex;
-            gap: 16px;
+            align-items: flex-end;
+            gap: 8px;
+            grid-column: auto;
+        }
+
+        .filter-field-actions .btn {
+            min-height: 40px;
+            min-width: 84px;
+            padding: 8px 14px;
+            white-space: nowrap;
+        }
+
+        .advanced-filters {
+            grid-column: 1 / -1;
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            margin-top: 2px;
+        }
+
+        .advanced-filters summary {
+            color: var(--primary);
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.9rem;
+            list-style: none;
+            user-select: none;
+            width: fit-content;
+        }
+
+        .advanced-filters summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .advanced-filters summary::after {
+            content: '▾';
+            margin-left: 8px;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .advanced-filters[open] summary::after {
+            content: '▴';
+        }
+
+        .advanced-filter-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(140px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+            max-width: 560px;
+        }
+
+        .bulk-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .history-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0 14px;
+            gap: 12px;
+            padding: 0 4px;
+        }
+
+        .results-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .results-summary .summary-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--primary-soft);
+            color: var(--primary);
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 100%;
-            margin-top: 4px;
-            border-top: 1px dashed var(--border);
-            padding-top: 16px;
+        }
+
+        .results-summary small {
+            display: block;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-top: 1px;
+        }
+
+        .toolbar-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-route {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
         }
 
         .history-grid {
@@ -54,7 +212,7 @@
         .history-card {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: var(--radius);
+            border-radius: 14px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -85,10 +243,11 @@
             position: absolute;
             top: 10px;
             left: 10px;
-            width: 20px;
-            height: 20px;
+            width: 19px;
+            height: 19px;
             z-index: 10;
             cursor: pointer;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
         }
 
         .history-info {
@@ -100,6 +259,7 @@
             justify-content: space-between;
             align-items: flex-start;
             gap: 8px;
+            margin-bottom: 10px;
         }
 
         .history-name {
@@ -107,13 +267,142 @@
             font-size: 1.05rem;
             font-weight: 600;
             color: var(--primary);
-            margin-bottom: 4px;
+            line-height: 1.35;
+            word-break: break-word;
         }
 
         .history-detail {
             font-size: 0.88rem;
             color: var(--text-muted);
             margin-bottom: 2px;
+        }
+
+        .history-meta {
+            display: grid;
+            gap: 4px;
+        }
+
+        .confidence-row {
+            margin-top: 10px;
+        }
+
+        .confidence-track {
+            width: 100%;
+            height: 7px;
+            border-radius: 999px;
+            background: var(--surface-2);
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #2563eb, #14a37f);
+        }
+
+        .plate-thumb {
+            position: absolute;
+            right: 8px;
+            bottom: 8px;
+            background: rgba(15, 23, 42, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+            max-width: 106px;
+            text-align: center;
+            backdrop-filter: blur(4px);
+        }
+
+        .plate-thumb img {
+            max-height: 28px;
+            max-width: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 980px) {
+            .history-hero-inner,
+            .history-toolbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .filter-fields {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .filter-field-wide {
+                grid-column: span 2;
+            }
+
+            .filter-field-actions {
+                grid-column: span 2;
+            }
+
+            .advanced-filter-grid {
+                max-width: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .history-hero {
+                padding: 18px 20px 10px;
+            }
+
+            .history-hero h1 {
+                font-size: 1.55rem;
+            }
+
+            .history-status {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                min-width: 0;
+                width: 100%;
+            }
+
+            .status-tile {
+                padding: 7px 10px;
+            }
+
+            .filter-panel {
+                padding: 10px;
+            }
+
+            .filter-fields {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                width: 100%;
+            }
+
+            .field {
+                gap: 4px;
+            }
+
+            .field > label {
+                font-size: 0.8rem;
+            }
+
+            .filter-field-wide,
+            .filter-field-actions {
+                grid-column: span 2;
+            }
+
+            .advanced-filter-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+            }
+
+            .filter-field-actions,
+            .toolbar-actions {
+                width: 100%;
+            }
+
+            .filter-field-actions .btn,
+            .toolbar-actions .btn,
+            .toolbar-actions .check-pill {
+                flex: 1;
+            }
         }
 
         .modal-content {
@@ -171,14 +460,27 @@
         </div>
     </nav>
 
-    <header class="hero">
-        <h1>AI CCTV <span>History</span></h1>
-        <p>ประวัติการตรวจจับบุคคลเป้าหมาย</p>
+    <header class="hero history-hero">
+        <div class="history-hero-inner">
+            <div>
+                <h1>AI CCTV <span>History</span></h1>
+                <p>ประวัติการตรวจจับและหลักฐานจากกล้องทั้งหมด</p>
+            </div>
+            <div class="history-status">
+                <div class="status-tile">
+                    <span>ช่วงเวลา</span>
+                    <strong id="date-range-label">วันนี้</strong>
+                </div>
+                <div class="status-tile">
+                    <span>ผลลัพธ์</span>
+                    <strong id="result-total-label">0 รายการ</strong>
+                </div>
+            </div>
+        </div>
     </header>
 
     <main class="container history-container">
         <div class="glass-card filter-panel">
-            <!-- Left Side: Filters and Search -->
             <div class="filter-fields">
                 <div class="field">
                     <label>วันที่เริ่มต้น</label>
@@ -194,57 +496,69 @@
                 </div>
                 <div class="field">
                     <label>เลขทะเบียน</label>
-                    <input type="text" id="license_plate" placeholder="เช่น 3กข1234" style="width: 140px;">
+                    <input type="text" id="license_plate" placeholder="เช่น 3กข1234">
                 </div>
-                <div class="field" style="width: 130px;">
-                    <label>ประเภทรถ</label>
-                    <select id="vehicle_type">
-                        <option value="">ทั้งหมด</option>
-                        <option value="รถเก๋ง">รถเก๋ง</option>
-                        <option value="รถกระบะ">รถกระบะ</option>
-                        <option value="รถมอเตอร์ไซค์">รถมอเตอร์ไซค์</option>
-                        <option value="รถบัส">รถบัส</option>
-                        <option value="รถจักรยาน">รถจักรยาน</option>
-                    </select>
+                <div class="filter-field-actions">
+                    <button class="btn btn-primary" onclick="loadHistory()">🔍 ค้นหา</button>
+                    <button class="btn btn-ghost" onclick="resetFilters()">ล้างค่า</button>
                 </div>
-                <div class="field" style="width: 100px;">
-                    <label>สีรถ</label>
-                    <select id="vehicle_color">
-                        <option value="">ทั้งหมด</option>
-                        <option value="ขาว">ขาว</option>
-                        <option value="ดำ">ดำ</option>
-                        <option value="เทา">เทา</option>
-                        <option value="แดง">แดง</option>
-                        <option value="น้ำเงิน">น้ำเงิน</option>
-                        <option value="เขียว">เขียว</option>
-                        <option value="เหลือง">เหลือง</option>
-                    </select>
-                </div>
-                <div class="field" style="width: 170px;">
-                    <label>ประเภทบุคคล/เป้าหมาย</label>
-                    <select id="person_type">
-                        <option value="all">ทั้งหมด</option>
-                        <option value="target">เฉพาะเป้าหมาย</option>
-                        <option value="plate_target">💳 เฉพาะทะเบียนเป้าหมาย</option>
-                        <option value="unknown">เฉพาะทั่วไป</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" onclick="loadHistory()">🔍 ค้นหา</button>
+                <details class="advanced-filters">
+                    <summary>ตัวกรองเพิ่มเติม</summary>
+                    <div class="advanced-filter-grid">
+                        <div class="field">
+                            <label>ประเภทรถ</label>
+                            <select id="vehicle_type">
+                                <option value="">ทั้งหมด</option>
+                                <option value="รถเก๋ง">รถเก๋ง</option>
+                                <option value="รถกระบะ">รถกระบะ</option>
+                                <option value="รถมอเตอร์ไซค์">รถมอเตอร์ไซค์</option>
+                                <option value="รถบัส">รถบัส</option>
+                                <option value="รถจักรยาน">รถจักรยาน</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>สีรถ</label>
+                            <select id="vehicle_color">
+                                <option value="">ทั้งหมด</option>
+                                <option value="ขาว">ขาว</option>
+                                <option value="ดำ">ดำ</option>
+                                <option value="เทา">เทา</option>
+                                <option value="แดง">แดง</option>
+                                <option value="น้ำเงิน">น้ำเงิน</option>
+                                <option value="เขียว">เขียว</option>
+                                <option value="เหลือง">เหลือง</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>ประเภทบุคคล/เป้าหมาย</label>
+                            <select id="person_type">
+                                <option value="all">ทั้งหมด</option>
+                                <option value="target">เฉพาะเป้าหมาย</option>
+                                <option value="plate_target">💳 เฉพาะทะเบียนเป้าหมาย</option>
+                                <option value="unknown">เฉพาะทั่วไป</option>
+                            </select>
+                        </div>
+                    </div>
+                </details>
             </div>
+        </div>
 
-            <!-- Right Side: Bulk Actions -->
-            <div class="filter-actions">
+        <div class="history-toolbar">
+            <div id="results-count" class="results-summary">
+                <span class="summary-icon">🔎</span>
+                <span>
+                    พบประวัติการตรวจจับ 0 รายการ
+                    <small>เรียงจากรายการล่าสุดก่อน</small>
+                </span>
+            </div>
+            <div class="toolbar-actions">
                 <label class="check-pill">
                     <input type="checkbox" id="selectAllCheckbox" onchange="selectAll(this)">
                     เลือกทั้งหมด
                 </label>
-                <button class="btn btn-danger" onclick="bulkDelete()">🗑️ ลบที่เลือก</button>
+                <button class="btn btn-soft-danger" onclick="bulkDelete()">🗑️ ลบที่เลือก</button>
+                <button class="btn btn-primary btn-route" id="btn-trace-route" onclick="traceRouteFromInput()">🗺️ ไล่เส้นทางผ่านกล้อง</button>
             </div>
-        </div>
-
-        <div style="margin: 16px 8px 12px 8px; display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.95rem; font-weight: 600; flex-wrap: wrap; gap: 10px;">
-            <div id="results-count">🔍 พบประวัติการตรวจจับทั้งหมด: 0 รายการ</div>
-            <button class="btn btn-primary" id="btn-trace-route" onclick="traceRouteFromInput()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; padding: 8px 16px; background: linear-gradient(135deg, #2563eb, #1d4ed8); border-radius: var(--radius-sm); border: none; font-weight: 600;">🗺️ ไล่เส้นทางผ่านกล้อง (Route Timeline)</button>
         </div>
 
         <div id="history-results" class="history-grid">
@@ -368,6 +682,48 @@
             document.getElementById('end_date').value = todayStr;
         }
 
+        function resetFilters() {
+            setDefaultDates();
+            document.getElementById('target_name').value = '';
+            document.getElementById('license_plate').value = '';
+            document.getElementById('vehicle_type').value = '';
+            document.getElementById('vehicle_color').value = '';
+            document.getElementById('person_type').value = 'all';
+            loadHistory();
+        }
+
+        function formatDateLabel(value) {
+            if (!value) return '';
+            const date = new Date(`${value}T00:00:00`);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleDateString('th-TH', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+            });
+        }
+
+        function updateHistorySummary(total) {
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const dateRangeLabel = document.getElementById('date-range-label');
+            const resultTotalLabel = document.getElementById('result-total-label');
+            const countEl = document.getElementById('results-count');
+            const rangeText = startDate && endDate && startDate !== endDate
+                ? `${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}`
+                : (formatDateLabel(startDate || endDate) || 'ทั้งหมด');
+
+            dateRangeLabel.textContent = rangeText;
+            resultTotalLabel.textContent = `${total} รายการ`;
+            countEl.innerHTML = `
+                <span class="summary-icon">🔎</span>
+                <span>
+                    พบประวัติการตรวจจับ <strong style="color: var(--primary);">${total}</strong> รายการ
+                    <small>เรียงจากรายการล่าสุดก่อน</small>
+                </span>
+            `;
+        }
+
         async function loadHistory(silent = false) {
             const resultsDiv = document.getElementById('history-results');
             if (!silent) {
@@ -397,7 +753,7 @@
 
                 if (result.status === 'success') {
                     currentHistoryData = result.data || [];
-                    document.getElementById('results-count').innerHTML = `🔍 พบประวัติการตรวจจับทั้งหมด: <strong style="color: var(--primary); font-size: 1.1rem;">${currentHistoryData.length}</strong> รายการ`;
+                    updateHistorySummary(currentHistoryData.length);
                     if (currentHistoryData.length === 0) {
                         resultsDiv.innerHTML = '<div class="empty-state">❌ ไม่พบประวัติการตรวจจับในช่วงเวลาที่กำหนด</div>';
                         return;
@@ -416,15 +772,16 @@
                         const fullUrl = safeMediaUrl(item.full_url);
                         const plateImgUrl = safeMediaUrl(item.plate_img_url);
                         const cameraText = String(item.camera_url || '');
+                        const confidence = Number(item.confidence) || 0;
 
                         newHtml += `
                             <div class="history-card">
-                                <div class="history-img-container" style="position: relative;">
+                                <div class="history-img-container">
                                     <input type="checkbox" class="history-checkbox" value="${Number(item.id) || 0}">
                                     <img src="${fullUrl}" alt="Full Image" onclick="openModalByIndex(${index})" title="คลิกเพื่อดูรูปเต็ม">
                                     ${plateImgUrl ? `
-                                    <div style="position: absolute; right: 6px; bottom: 6px; background: rgba(15, 23, 42, 0.9); border: 1.5px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); max-width: 90px; text-align: center; backdrop-filter: blur(2px);">
-                                        <img src="${plateImgUrl}" style="max-height: 25px; max-width: 100%; object-fit: contain; display: block; border-radius: 2px;" title="ภาพป้ายทะเบียน">
+                                    <div class="plate-thumb">
+                                        <img src="${plateImgUrl}" title="ภาพป้ายทะเบียน">
                                     </div>
                                     ` : ''}
                                 </div>
@@ -433,9 +790,14 @@
                                         <div class="history-name">🎯 ${escapeHTML(item.name)} ${badgeHtml}</div>
                                         <button class="btn btn-soft-danger btn-sm" onclick="deleteHistory(${Number(item.id) || 0})">🗑️ ลบ</button>
                                     </div>
-                                    <div class="history-detail">🕒 ${escapeHTML(thaiDate)}</div>
-                                    <div class="history-detail">มั่นใจ: ${Number(item.confidence) || 0}%</div>
-                                    <div class="history-detail" style="font-size: 0.8rem;">📷 ${escapeHTML(cameraText.substring(0, 30))}...</div>
+                                    <div class="history-meta">
+                                        <div class="history-detail">🕒 ${escapeHTML(thaiDate)}</div>
+                                        <div class="history-detail">📷 ${escapeHTML(cameraText.substring(0, 36))}${cameraText.length > 36 ? '...' : ''}</div>
+                                    </div>
+                                    <div class="confidence-row">
+                                        <div class="history-detail">มั่นใจ: ${confidence}%</div>
+                                        <div class="confidence-track"><div class="confidence-fill" style="width: ${Math.max(0, Math.min(100, confidence))}%;"></div></div>
+                                    </div>
                                 </div>
                             </div>
                         `;

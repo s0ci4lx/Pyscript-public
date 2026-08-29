@@ -313,27 +313,73 @@ def find_target_vehicle_image_path(vehicle_name):
         pass
     return None
 
+def rounded_rect(img, pt1, pt2, color, radius=18, thickness=-1):
+    x1, y1 = pt1
+    x2, y2 = pt2
+    radius = max(0, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
+    if radius == 0:
+        cv2.rectangle(img, pt1, pt2, color, thickness)
+        return
+    if thickness < 0:
+        cv2.rectangle(img, (x1 + radius, y1), (x2 - radius, y2), color, -1)
+        cv2.rectangle(img, (x1, y1 + radius), (x2, y2 - radius), color, -1)
+        cv2.circle(img, (x1 + radius, y1 + radius), radius, color, -1)
+        cv2.circle(img, (x2 - radius, y1 + radius), radius, color, -1)
+        cv2.circle(img, (x1 + radius, y2 - radius), radius, color, -1)
+        cv2.circle(img, (x2 - radius, y2 - radius), radius, color, -1)
+    else:
+        cv2.line(img, (x1 + radius, y1), (x2 - radius, y1), color, thickness)
+        cv2.line(img, (x1 + radius, y2), (x2 - radius, y2), color, thickness)
+        cv2.line(img, (x1, y1 + radius), (x1, y2 - radius), color, thickness)
+        cv2.line(img, (x2, y1 + radius), (x2, y2 - radius), color, thickness)
+        cv2.ellipse(img, (x1 + radius, y1 + radius), (radius, radius), 180, 0, 90, color, thickness)
+        cv2.ellipse(img, (x2 - radius, y1 + radius), (radius, radius), 270, 0, 90, color, thickness)
+        cv2.ellipse(img, (x2 - radius, y2 - radius), (radius, radius), 0, 0, 90, color, thickness)
+        cv2.ellipse(img, (x1 + radius, y2 - radius), (radius, radius), 90, 0, 90, color, thickness)
+
 def build_telegram_comparison_card(target_type, target_name, match_pct, camera_name, live_crop_img, target_img_path=None, plate_text=None):
-    card_w, card_h = 800, 480
+    card_w, card_h = 820, 700
     canvas = np.zeros((card_h, card_w, 3), dtype=np.uint8)
-    canvas[:] = (26, 26, 32)
-    
-    cv2.rectangle(canvas, (0, 0), (card_w, 60), (38, 38, 48), -1)
-    cv2.line(canvas, (0, 60), (card_w, 60), (255, 75, 75), 2)
-    
-    badge_color = (0, 220, 80) if match_pct >= 80 else (0, 180, 240) if match_pct >= 60 else (80, 80, 240)
-    title_text = f"🚨 ตรวจพบเป้าหมาย: {target_name}"
-    score_text = f"ความเหมือน {match_pct}%"
-    canvas = put_thai_text(canvas, title_text, (20, 15), (255, 255, 255))
-    canvas = put_thai_text(canvas, score_text, (card_w - 200, 15), badge_color)
-    
-    img_y1, img_y2 = 90, 400
+    canvas[:] = (46, 27, 15)
+
+    safe_target = telegram_image_text(target_name, max_len=34)
+    safe_camera = telegram_image_text(camera_name, max_len=22)
+    safe_plate = telegram_image_text(plate_text, max_len=24) if plate_text else ""
+    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    score_color = (114, 186, 86) if match_pct >= 80 else (210, 145, 42) if match_pct >= 60 else (41, 33, 178)
+
+    rounded_rect(canvas, (20, 20), (800, 680), (48, 29, 16), radius=24)
+    rounded_rect(canvas, (20, 20), (800, 680), (122, 82, 54), radius=24, thickness=2)
+    rounded_rect(canvas, (44, 44), (776, 116), (66, 45, 31), radius=16)
+    rounded_rect(canvas, (620, 60), (752, 100), score_color, radius=20)
+    canvas = put_thai_text(canvas, "ตรวจพบเป้าหมาย", (68, 60), (250, 252, 255), font_size=28)
+    canvas = put_thai_text(canvas, f"{match_pct}%", (663, 65), (255, 255, 255), font_size=27)
+
+    chip_y = 140
+    rounded_rect(canvas, (44, chip_y), (304, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (320, chip_y), (588, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (604, chip_y), (776, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (44, chip_y), (304, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (320, chip_y), (588, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (604, chip_y), (776, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    canvas = put_thai_text(canvas, f"เป้าหมาย: {safe_target}", (60, chip_y + 10), (220, 230, 245), font_size=17)
+    canvas = put_thai_text(canvas, f"กล้อง: {safe_camera}", (336, chip_y + 10), (220, 230, 245), font_size=17)
+    canvas = put_thai_text(canvas, f"เวลา: {ts_now[-8:]}", (620, chip_y + 10), (220, 230, 245), font_size=17)
+
+    img_y1, img_y2 = 260, 565
     box_h = img_y2 - img_y1
-    box_w = 365
-    
-    left_x1, left_x2 = 20, 20 + box_w
-    cv2.rectangle(canvas, (left_x1, img_y1), (left_x2, img_y2), (48, 48, 60), -1)
-    
+    box_w = 350
+
+    left_x1, left_x2 = 44, 44 + box_w
+    right_x1, right_x2 = 426, 426 + box_w
+
+    canvas = put_thai_text(canvas, "ภาพเป้าหมาย", (left_x1 + 16, img_y1 - 34), (255, 160, 70), font_size=21)
+    canvas = put_thai_text(canvas, "ภาพตรวจพบ", (right_x1 + 16, img_y1 - 34), (0, 184, 255), font_size=21)
+    rounded_rect(canvas, (left_x1, img_y1), (left_x2, img_y2), (66, 48, 36), radius=16)
+    rounded_rect(canvas, (right_x1, img_y1), (right_x2, img_y2), (66, 48, 36), radius=16)
+    rounded_rect(canvas, (left_x1, img_y1), (left_x2, img_y2), (148, 103, 71), radius=16, thickness=1)
+    rounded_rect(canvas, (right_x1, img_y1), (right_x2, img_y2), (148, 103, 71), radius=16, thickness=1)
+
     target_loaded = None
     if target_img_path and os.path.exists(target_img_path):
         try:
@@ -343,37 +389,32 @@ def build_telegram_comparison_card(target_type, target_name, match_pct, camera_n
             
     if target_loaded is not None and target_loaded.size > 0:
         th, tw = target_loaded.shape[:2]
-        scale = min(box_w / tw, box_h / th)
+        scale = min((box_w - 30) / tw, (box_h - 30) / th)
         nw, nh = max(1, int(tw * scale)), max(1, int(th * scale))
         resized_target = cv2.resize(target_loaded, (nw, nh), interpolation=cv2.INTER_AREA)
         off_x = left_x1 + (box_w - nw) // 2
         off_y = img_y1 + (box_h - nh) // 2
         canvas[off_y:off_y+nh, off_x:off_x+nw] = resized_target
     else:
-        canvas = put_thai_text(canvas, "ภาพเป้าหมายอ้างอิง", (left_x1 + 90, img_y1 + 140), (140, 140, 160))
-        if plate_text:
-            canvas = put_thai_text(canvas, f"ป้าย: {plate_text}", (left_x1 + 100, img_y1 + 180), (0, 220, 255))
-            
-    right_x1, right_x2 = 415, 415 + box_w
-    cv2.rectangle(canvas, (right_x1, img_y1), (right_x2, img_y2), (48, 48, 60), -1)
-    
+        canvas = put_thai_text(canvas, "ไม่มีภาพอ้างอิง", (left_x1 + 88, img_y1 + 132), (185, 160, 145), font_size=23)
+        if safe_plate:
+            canvas = put_thai_text(canvas, f"ทะเบียน: {safe_plate}", (left_x1 + 84, img_y1 + 168), (240, 205, 35), font_size=21)
+
     if live_crop_img is not None and live_crop_img.size > 0:
         lh, lw = live_crop_img.shape[:2]
-        scale = min(box_w / lw, box_h / lh)
+        scale = min((box_w - 30) / lw, (box_h - 30) / lh)
         nw, nh = max(1, int(lw * scale)), max(1, int(lh * scale))
         resized_live = cv2.resize(live_crop_img, (nw, nh), interpolation=cv2.INTER_AREA)
         off_x = right_x1 + (box_w - nw) // 2
         off_y = img_y1 + (box_h - nh) // 2
         canvas[off_y:off_y+nh, off_x:off_x+nw] = resized_live
-    
-    canvas = put_thai_text(canvas, "🎯 เป้าหมายที่ลงทะเบียน", (left_x1 + 70, img_y1 - 25), (180, 180, 200))
-    canvas = put_thai_text(canvas, "📸 ภาพตรวจพบสดจากกล้อง", (right_x1 + 70, img_y1 - 25), (0, 200, 255))
-    
-    cv2.rectangle(canvas, (0, 420), (card_w, card_h), (34, 34, 42), -1)
-    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    footer_text = f"📹 กล้อง: {camera_name}  |  ⏰ เวลา: {ts_now}"
-    canvas = put_thai_text(canvas, footer_text, (20, 442), (200, 200, 220))
-    
+    else:
+        canvas = put_thai_text(canvas, "ไม่มีภาพจากกล้อง", (right_x1 + 82, img_y1 + 132), (185, 160, 145), font_size=23)
+
+    rounded_rect(canvas, (44, 600), (776, 654), (66, 45, 31), radius=14)
+    note = "ความเหมือนต่ำกว่า 60%: ควรตรวจสอบด้วยสายตาอีกครั้ง" if match_pct < 60 else f"ตรวจพบเมื่อ {ts_now}"
+    canvas = put_thai_text(canvas, telegram_image_text(note, max_len=62), (68, 615), (38, 202, 255) if match_pct < 60 else (235, 218, 205), font_size=22)
+
     return canvas
 
 def send_telegram_alert_async(target_type, target_name, match_pct, camera_name, live_crop_img, target_img_path=None, plate_text=None):
@@ -424,12 +465,10 @@ def send_telegram_alert_async(target_type, target_name, match_pct, camera_name, 
             icon = "🧑" if target_type == "face" else "🚗" if target_type == "vehicle" else "🔤"
             caption = (
                 f"🚨 แจ้งเตือนตรวจพบเป้าหมาย! {icon}\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🎯 เป้าหมาย: {target_name}\n"
+                f"🎯 เป้าหมาย: {telegram_caption_text(target_name, max_len=48)}\n"
                 f"📊 ความเหมือน: {match_pct}%\n"
-                f"📹 กล้อง: {camera_name}\n"
+                f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
                 f"⏰ เวลา: {ts_str}\n"
-                f"━━━━━━━━━━━━━━━━━━"
             )
             
             url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -568,7 +607,7 @@ CAMERAS_FILE = "cameras.json"
 DEFAULT_CAMERAS = [
     {"id": "webcam", "name": "Webcam (กล้องคอมพิวเตอร์)", "url": "0"},
     {"id": "screen1", "name": "แคปหน้าจอ (Monitor 1)", "url": "screen:1"},
-    {"id": "cctv_sample", "name": "RTSP Sample Stream", "url": "rtsp://username:password@192.0.2.10:554/stream1"}
+    {"id": "cctv_sample", "name": "RTSP Sample Stream", "url": "rtsp://admin:password@192.168.1.100:554/stream1"}
 ]
 
 def load_cameras():
@@ -1281,6 +1320,8 @@ def save_high_quality_crop(img, path):
         print(f"Error saving high quality crop: {e}")
 
 thai_font = None
+thai_font_path = None
+thai_font_cache = {}
 font_candidates = [
     os.path.join(os.path.dirname(__file__), "Kanit-Regular.ttf"),
     "/Library/Fonts/Arial Unicode.ttf",
@@ -1296,20 +1337,59 @@ for font_path in font_candidates:
     if os.path.exists(font_path):
         try:
             thai_font = ImageFont.truetype(font_path, 24)
+            thai_font_path = font_path
+            thai_font_cache[24] = thai_font
             break
         except Exception:
             continue
 
 if thai_font is None:
     thai_font = ImageFont.load_default()
+    thai_font_cache[24] = thai_font
 
-def put_thai_text(img, text, position, text_color=(0, 0, 255)):
+def get_thai_font(font_size=24):
+    font_size = int(font_size or 24)
+    if font_size in thai_font_cache:
+        return thai_font_cache[font_size]
+    if thai_font_path:
+        try:
+            font = ImageFont.truetype(thai_font_path, font_size)
+            thai_font_cache[font_size] = font
+            return font
+        except Exception:
+            pass
+    return thai_font
+
+def compact_text(value, max_len=48):
+    text = str(value or "").replace("\n", " ").replace("\r", " ").strip()
+    text = re.sub(r"\s+", " ", text)
+    if len(text) <= max_len:
+        return text
+    return text[:max(0, max_len - 3)].rstrip() + "..."
+
+def telegram_image_text(value, max_len=48):
+    text = compact_text(value, max_len=max_len)
+    allowed = []
+    for ch in text:
+        code = ord(ch)
+        is_thai = 0x0E00 <= code <= 0x0E7F
+        is_ascii_text = ch.isascii() and (ch.isalnum() or ch in " -_.,:()/#@%+|")
+        if is_thai or is_ascii_text:
+            allowed.append(ch)
+        elif ch.isspace():
+            allowed.append(" ")
+    return re.sub(r"\s+", " ", "".join(allowed)).strip()
+
+def telegram_caption_text(value, max_len=48):
+    return telegram_image_text(value, max_len=max_len)
+
+def put_thai_text(img, text, position, text_color=(0, 0, 255), font_size=24):
     try:
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(img_pil)
         # OpenCV uses BGR, PIL uses RGB. 
         fill_color = (text_color[2], text_color[1], text_color[0])
-        draw.text(position, text, font=thai_font, fill=fill_color)
+        draw.text(position, text, font=get_thai_font(font_size), fill=fill_color)
         return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
     except Exception as e:
         # Fallback to OpenCV if PIL fails

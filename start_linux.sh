@@ -14,7 +14,7 @@ fuser -k 8081/tcp 2>/dev/null || true
 sleep 1
 
 echo "Checking and installing required packages from requirements.txt..."
-python3 -m pip install --upgrade pip setuptools wheel
+python3 -m pip install --upgrade pip wheel "setuptools<81"
 python3 -m pip install -r requirements.txt
 
 echo "[1/2] Starting Backend (Port 8081)..."

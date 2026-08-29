@@ -14,7 +14,7 @@ lsof -ti:8081 | xargs kill -9 2>/dev/null
 sleep 1
 
 echo "Checking and installing required packages from requirements.txt..."
-python3 -m pip install --upgrade pip setuptools wheel
+python3 -m pip install --upgrade pip wheel "setuptools<81"
 python3 -m pip install -r requirements.txt
 
 export PYTORCH_ENABLE_MPS_FALLBACK=1
