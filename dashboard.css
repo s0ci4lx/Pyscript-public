@@ -52,8 +52,6 @@
 .command-center button:disabled { opacity: .5; cursor: not-allowed; }
 .command-center input { accent-color: var(--primary); caret-color: var(--primary); }
 .command-center ::selection { background: var(--primary); color: var(--color-console-accent-ink); }
-.skip-link { position: fixed; top: 8px; left: 8px; transform: translateY(-160%); z-index: 1000000; padding: 12px; background: var(--primary); color: var(--color-console-accent-ink); }
-.skip-link:focus { transform: none; }
 @media (max-width: 1100px) {
   .command-center .main-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
   .command-center .nav-links { flex-wrap: wrap; }
