@@ -1,3 +1,9 @@
+> **ติดตั้ง Windows + NVIDIA จาก ZIP:** แตกไฟล์ก่อน แล้วอ่าน [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
+> ติดตั้ง Python 3.11 (64-bit) และไดรเวอร์ NVIDIA จากนั้นเปิด `install_windows.bat`
+> เมื่อติดตั้งผ่าน เปิด `start_windows.bat` — โหมดรถ/LPR ไม่ต้องติดตั้ง dlib
+> **Mac:** เปิด `start_mac.command` ตามเดิม รองรับชุดเต็มรวมใบหน้า
+> ข้อมูลกล้อง เป้าหมาย ประวัติ และ Telegram ของผู้พัฒนาไม่รวมในรุ่นสาธารณะ
+
 # 🛡️ CCTV AI Surveillance & Intelligence System
 ### ระบบตรวจจับอัจฉริยะแบบเรียลไทม์ (YOLOv8 + Face Recognition + Vehicle Re-ID + LPR)
 
@@ -53,6 +59,8 @@
 
 ## 🚀 คู่มือการติดตั้งตั้งแต่เริ่มต้น (Step-by-Step Installation)
 
+> **สถานะรุ่น:** เหมาะสำหรับใช้งานส่วนตัวและทดลองแบบ Closed Beta บนเครื่องผู้ใช้ ระบบตั้งใจให้เข้าถึงผ่าน `localhost` เท่านั้น ไม่ควรเปิดพอร์ต 8000/8081 สู่ LAN หรืออินเทอร์เน็ต
+
 ### 1. ติดตั้ง Prerequisite (ก่อนลงโปรแกรม)
 
 เนื่องจากระบบใช้ไลบรารี `face_recognition` และ `dlib` ซึ่งต้องใช้ C++ Compiler และ CMake ในการ Build:
@@ -100,8 +108,8 @@ sudo apt install -y python3 python3-pip python3-venv build-essential cmake libop
 
 ```bash
 # 1. เข้ามายังโฟลเดอร์ของโปรเจกต์
-git clone https://github.com/s0ci4lx/Pyscript-public.git
-cd Pyscript-public
+git clone https://github.com/s0ci4lx/Pyscript.git
+cd Pyscript
 
 # 2. สร้าง Virtual Environment (แนะนำ)
 python3 -m venv venv
@@ -161,6 +169,8 @@ pip install -r requirements.txt
 
 ระบบจะเปิด Backend Server (Port 8081) และ Frontend Server (Port 8000) พร้อมเปิดเว็บเบราว์เซอร์ไปยัง `http://localhost:8000` ให้อัตโนมัติ
 
+ครั้งแรกสคริปต์จะสร้าง `.venv` และติดตั้ง dependencies ให้โดยอัตโนมัติ หลังจากนั้นจะติดตั้งใหม่เฉพาะเมื่อ `requirements.txt` เปลี่ยน จึงเปิดระบบได้เร็วขึ้นและไม่แก้ Python packages ส่วนกลางของเครื่อง
+
 ---
 
 ### วิธีที่ 2: รันคำสั่งด้วยตนเอง (Manual Start)
@@ -175,9 +185,11 @@ python rtsp_yolo_backend.py
 
 **หน้าต่างที่ 2: รัน Frontend Web Server**
 ```bash
-python -m http.server 8000
+python serve_frontend.py
 # เข้าใช้งาน Dashboard ผ่านเว็บเบราว์เซอร์: http://localhost:8000
 ```
+
+ห้ามใช้ `python -m http.server` กับโฟลเดอร์โปรเจกต์นี้ เพราะอาจทำให้ไฟล์ตั้งค่า ฐานข้อมูล และ URL กล้องถูกดาวน์โหลดจากเครื่องอื่นในเครือข่ายได้
 
 ---
 
@@ -224,6 +236,9 @@ python -m http.server 8000
 ├── settings.html            # หน้าตั้งค่ากล้องและพารามิเตอร์ระบบ
 ├── app.css / style.css      # สไตล์และธีม Dark UI ของระบบ
 ├── rtsp_yolo_backend.py     # Backend Server หลัก (FastAPI + YOLO + Re-ID + OCR)
+├── serve_frontend.py        # Static server แบบ local-only และอนุญาตเฉพาะไฟล์หน้าเว็บ
+├── bootstrap.py             # สร้าง .venv และติดตั้ง dependencies เมื่อจำเป็น
+├── security_utils.py        # ฟังก์ชันป้องกันไฟล์ลับและกรองข้อมูล credential
 ├── requirements.txt         # รายการแพ็กเกจ Python ที่จำเป็น
 ├── start_mac.command        # สคริปต์รันระบบ One-Click สำหรับ macOS
 ├── start_windows.bat        # สคริปต์รันระบบ One-Click สำหรับ Windows
@@ -251,10 +266,59 @@ python -m http.server 8000
 - สามารถปรับ Resolution สตรีมย่อย (Sub-stream) ของกล้อง IP Camera เพื่อลดการใช้แบนด์วิดท์และการประมวลผล
 
 ### Q: พอร์ต 8000 หรือ 8081 ซ้ำ (Port in use)?
-- ปิดโปรเซสที่ค้างอยู่ หรือรีสตาร์ทด้วยสคริปต์ `start_mac.command` / `start_linux.sh` (สคริปต์จะทำการเคลียร์พอร์ตเดิมให้อัตโนมัติ)
+- ปิดโปรแกรมเดิมที่ใช้พอร์ตนั้นแล้วเปิดใหม่ สคริปต์จะไม่บังคับปิดโปรแกรมอื่นบนเครื่องเพื่อป้องกันข้อมูลสูญหาย
+
+### Q: ตรวจสอบว่า backend พร้อมหรือยัง?
+- เปิด `http://localhost:8081/health` ควรเห็น `status` เป็น `ok` และ `local_only` เป็น `true`
+
+### การทดสอบก่อนปล่อยรุ่น
+
+รัน automated tests และตรวจ syntax ด้วยคำสั่ง:
+
+```bash
+python -m unittest discover -s tests -v
+python -m py_compile rtsp_yolo_backend.py security_utils.py bootstrap.py check_ports.py serve_frontend.py wait_for_backend.py
+```
+
+### ความปลอดภัยของข้อมูลในเครื่อง
+
+- Backend และ frontend รับการเชื่อมต่อจาก loopback (`localhost`) เท่านั้น
+- Frontend server เสิร์ฟเฉพาะไฟล์ dashboard ที่กำหนดไว้ ไม่เสิร์ฟ `config.json`, `cameras.json`, ฐานข้อมูล หรือโฟลเดอร์หลักฐาน
+- `config.json`, `cameras.json` และ `history.db` ถูกจำกัด permission ให้เจ้าของเครื่องอ่านได้บนระบบที่รองรับ POSIX permissions
+- Telegram token, URL กล้อง, ภาพใบหน้า และประวัติการตรวจจับยังเป็นข้อมูลอ่อนไหว ควรใช้บัญชีผู้ใช้เครื่องที่มีรหัสผ่านและเข้ารหัสดิสก์
 
 ---
 
 ## 📄 License & Disclaimer
 
 โปรเจกต์นี้พัฒนาขึ้นเพื่อการศึกษาและการเฝ้าระวังความปลอดภัย การนำไปใช้งานในการบันทึกภาพหรือตรวจจับบุคคลกรุณาปฏิบัติตามกฎหมายคุ้มครองข้อมูลส่วนบุคคล (PDPA) และกฎหมายที่เกี่ยวข้องในพื้นที่ของท่าน
+
+### เชื่อมกล้องสตูล
+เปิดระบบ Satun-AI-Cam ก่อน แล้วไปหน้าตั้งค่า กด **โหลดกล้องจากระบบสตูล**
+เลือกกล้องและกด **เพิ่มกล้องเพื่อประมวลผล** ภาพ MJPEG จากระบบสตูลจะเข้า
+ตัวประมวลผลเดียวกับกล้องเดิม โดยไม่ต้องแคปหน้าจอ ใช้สตรีมหลัก (main) เพื่อรักษารายละเอียดสำหรับภาพแจ้งเตือน
+ระบบสตูลต้องเปิดอยู่ตลอดการใช้งาน ค่าเริ่มต้นคือ http://127.0.0.1:8765
+หากเปลี่ยนพอร์ต ให้ตั้ง SATUN_API_URL ก่อนเริ่ม backend ของโปรเจ็กต์นี้
+
+มุมมองหลายช่อง (รวม 3×3 และ Auto) รับภาพตัวอย่างที่มีผล AI แบบคำขอสั้น
+หมุนเวียนทุกช่อง ครั้งละไม่เกิน 3 คำขอ พร้อม timeout และลองใหม่อัตโนมัติ
+เมื่อสลับมุมมองจะยกเลิกคำขอเดิมและคืนหน่วยความจำภาพ เมื่อซ่อนแท็บจะพักการดึงภาพ
+จำนวนช่องยิ่งมาก ภาพตัวอย่างแต่ละช่องจะอัปเดตห่างขึ้น โดยไม่ได้ลดความถี่ AI ที่ตั้งไว้
+จำนวนกล้องจริงที่ประมวลผลได้ขึ้นกับ CPU/GPU หน่วยความจำ เครือข่าย และข้อจำกัด NVR
+ทดสอบคิวจำลองได้ด้วย `node tests/test_wall_previews.cjs`
+
+ภาพสดหลายช่องใช้ Domain Sharding อัตโนมัติถึง 16 ช่อง
+ผ่าน 127.0.0.1, localhost, cam1.localhost และ cam2.localhost
+จำกัดชื่อโฮสต์ละ 4 สตรีมเพื่อเหลือช่องทางสำหรับปุ่มควบคุม
+หากสตรีมเกิดข้อผิดพลาดหรือเปิดเกิน 16 ช่อง จะใช้การทยอยรับเฟรมแทน
+
+โหมดทดลอง `satun_async_capture` (ค่าเริ่มต้นปิด) แยกตัวอ่านสตรีมสตูลออกจาก AI
+และเก็บเฉพาะเฟรมล่าสุด ตรวจจำนวน received/skipped/delivered ได้จาก capture_health
+ใน /cameras ค่า skipped คือเฟรมที่ยังไม่ถูก AI วิเคราะห์ ไม่ใช่จำนวนรถที่พลาด
+โหมดนี้ยังไม่มีผลทดสอบเทียบเหตุการณ์จากคลิปเดียวกัน จึงยังไม่รับรอง recall
+
+## Windows NVIDIA: ติดตั้งจาก GitHub ZIP
+อ่าน [คู่มือติดตั้ง Windows](INSTALL_WINDOWS.md)
+แตก ZIP แล้วเปิด install_windows.bat ครั้งแรก จากนั้นเปิด start_windows.bat
+โหมดนี้ติดตั้งรถ/LPR พร้อมตรวจ CUDA ไม่บังคับติดตั้งส่วนใบหน้า
+Mac ยังคงใช้ start_mac.command ตามเดิม

@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>จัดการเป้าหมาย</title>
     <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
-            </div>
-    </div>
-
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="theme.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .targets-container {
@@ -29,13 +28,13 @@
 
         .target-count-badge {
             color: var(--text-muted);
-            font-size: 0.95rem;
+            font-size: 0.82rem;
         }
 
         .target-count-badge b {
             color: var(--primary);
             font-family: var(--font-head);
-            font-size: 1.1rem;
+            font-size: 0.95rem;
         }
 
         .target-grid {
@@ -136,7 +135,7 @@
     <div id="toast" class="toast">Notification Message</div>
 
     <!-- Navbar -->
-    
+
     <div class="browser-window">
         <div class="browser-header">
             <div class="mac-dots">
@@ -150,31 +149,39 @@
         </div>
         <div class="browser-content">
 <nav class="navbar">
-        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <a href="index.html" class="nav-logo"><i class="ri-radar-line"></i> AI <span>CCTV</span></a>
         <div class="nav-links">
-            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
-            <a href="history.html" class="nav-link">🕒 ประวัติการตรวจจับ</a>
+            <a href="index.html" class="nav-link"><i class="ri-home-4-line"></i> หน้าหลัก (Live)</a>
+            <a href="live_hits.html" class="nav-link" target="_blank" title="เปิดหน้าต่างมอนิเตอร์สดจอแยก (Live Wall)"><i class="ri-tv-2-line"></i> จอมอนิเตอร์สด (Wall) ↗</a>
+            <a href="history.html" class="nav-link"><i class="ri-history-line"></i> ประวัติการตรวจจับ</a>
             <div class="nav-dropdown">
-                <span class="nav-link active">⚙️ จัดการระบบ ▾</span>
+                <span class="nav-link active"><i class="ri-settings-4-line"></i> จัดการระบบ <i class="ri-arrow-down-s-line"></i></span>
                 <div class="dropdown-content">
-                    <a href="targets.html" class="dropdown-item active">👥 จัดการเป้าหมาย</a>
-                    <a href="settings.html" class="dropdown-item">⚙️ ตั้งค่าระบบและกล้อง</a>
+                    <a href="targets.html" class="dropdown-item active"><i class="ri-user-search-line"></i> จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item"><i class="ri-sound-module-line"></i> ตั้งค่าระบบและกล้อง</a>
                 </div>
             </div>
+            <button type="button" class="theme-toggle-btn" onclick="toggleAppTheme()" id="theme-toggle-btn" title="สลับธีม สว่าง / มืด" aria-label="สลับธีม สว่าง / มืด">
+                <span class="theme-toggle-track">
+                    <i class="ri-sun-fill theme-icon-sun"></i>
+                    <i class="ri-moon-fill theme-icon-moon"></i>
+                    <span class="theme-toggle-thumb"></span>
+                </span>
+            </button>
         </div>
     </nav>
 
     <header class="hero">
-        <h1>👥 จัดการ<span>เป้าหมาย</span></h1>
-        <p>รายชื่อบุคคลเป้าหมายในระบบ Face Recognition</p>
+        <h1><i class="ri-focus-3-line"></i> จัดการ<span>เป้าหมาย</span></h1>
+        <p>รายชื่อบุคคลและยานพาหนะเป้าหมายในระบบ AI Detection</p>
     </header>
 
     <main class="container targets-container">
         <!-- Tab Navigation -->
         <div class="tabs-navigation">
-            <button id="tab-person" class="tab-btn active" onclick="switchTab('person')">👥 บุคคลเป้าหมาย</button>
-            <button id="tab-vehicle" class="tab-btn" onclick="switchTab('vehicle')">🚗 ยานพาหนะเป้าหมาย</button>
-            <button id="tab-plate" class="tab-btn" onclick="switchTab('plate')">💳 ป้ายทะเบียนเป้าหมาย</button>
+            <button id="tab-person" class="tab-btn active" onclick="switchTab('person')"><i class="ri-user-search-line"></i> บุคคลเป้าหมาย</button>
+            <button id="tab-vehicle" class="tab-btn" onclick="switchTab('vehicle')"><i class="ri-car-line"></i> ยานพาหนะเป้าหมาย</button>
+            <button id="tab-plate" class="tab-btn" onclick="switchTab('plate')"><i class="ri-id-card-line"></i> ป้ายทะเบียนเป้าหมาย</button>
         </div>
 
         <!-- SECTION: PERSON TARGETS -->
@@ -190,18 +197,18 @@
 
             <!-- Pagination -->
             <div id="person-pagination" style="display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 25px;">
-                <button class="btn btn-ghost" id="btn-prev-page" onclick="changePersonPage(-1)">❮ ก่อนหน้า</button>
+                <button class="btn btn-ghost" id="btn-prev-page" onclick="changePersonPage(-1)"><i class="ri-arrow-left-s-line"></i> ก่อนหน้า</button>
                 <span id="page-info" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">หน้า 1 / 1</span>
-                <button class="btn btn-ghost" id="btn-next-page" onclick="changePersonPage(1)">ถัดไป ❯</button>
+                <button class="btn btn-ghost" id="btn-next-page" onclick="changePersonPage(1)">ถัดไป <i class="ri-arrow-right-s-line"></i></button>
             </div>
-            
+
             <!-- เพิ่มบุคคลเป้าหมาย -->
             <div class="glass-card targets-toolbar" style="margin-top: 30px; display: block;">
-                <h3 style="margin-bottom: 15px; color: var(--primary);">👥 เพิ่มบุคคลเป้าหมาย</h3>
+                <h3 style="margin-bottom: 15px; color: var(--primary);"><i class="ri-user-add-line"></i> เพิ่มบุคคลเป้าหมาย</h3>
                 <form id="add-person-form" onsubmit="addPersonTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
-                    <input type="text" id="person_name" placeholder="ชื่อบุคคล เช่น สมชาย (หากเพิ่มหลายคน จะตั้งชื่อตามชื่อไฟล์รูปภาพโดยอัตโนมัติ)" style="flex: 1; min-width: 200px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <input type="text" id="person_name" placeholder="ชื่อบุคคล เช่น สมชาย (หากเพิ่มหลายคน จะตั้งชื่อตามชื่อไฟล์รูปภาพโดยอัตโนมัติ)" style="flex: 1; min-width: 200px; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 0.82rem;">
                     <input type="file" id="person_file" accept="image/*" multiple required style="flex: 1; min-width: 200px; padding: 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface);">
-                    <button type="submit" class="btn btn-primary" id="btn-add-person" style="white-space: nowrap;">➕ เพิ่มบุคคล</button>
+                    <button type="submit" class="btn btn-primary" id="btn-add-person" style="white-space: nowrap;"><i class="ri-add-circle-line"></i> เพิ่มบุคคล</button>
                 </form>
             </div>
         </div>
@@ -210,15 +217,15 @@
         <div id="section-vehicle" style="display: none;">
             <!-- เพิ่มยานพาหนะเป้าหมาย -->
             <div class="glass-card targets-toolbar" style="display: block;">
-                <h3 style="margin-bottom: 15px; color: var(--primary);">🚗 เพิ่มยานพาหนะเป้าหมาย</h3>
+                <h3 style="margin-bottom: 15px; color: var(--primary);"><i class="ri-car-line"></i> เพิ่มยานพาหนะเป้าหมาย</h3>
                 <form id="add-vehicle-form" onsubmit="addVehicleTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
-                    <input type="text" id="vehicle_text" placeholder="พิมพ์ข้อความ เช่น รถสีแดง, รถกระบะสีขาว" style="flex: 1; min-width: 200px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <input type="text" id="vehicle_text" placeholder="พิมพ์ข้อความ เช่น รถสีแดง, รถกระบะสีขาว" style="flex: 1; min-width: 200px; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 0.82rem;">
                     <div style="display: flex; align-items: center; color: var(--text-muted);">หรือ</div>
                     <input type="file" id="vehicle_file" accept="image/*" style="flex: 1; min-width: 200px; padding: 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface);">
-                    <button type="submit" class="btn btn-primary" id="btn-add-vehicle" style="white-space: nowrap;">➕ เพิ่มเป้าหมาย</button>
+                    <button type="submit" class="btn btn-primary" id="btn-add-vehicle" style="white-space: nowrap;"><i class="ri-add-circle-line"></i> เพิ่มเป้าหมาย</button>
                 </form>
             </div>
-            
+
             <div class="glass-card targets-toolbar" style="margin-top: 25px; padding: 15px 24px;">
                 <h3 style="margin: 0;">รายการยานพาหนะเป้าหมาย</h3>
             </div>
@@ -231,15 +238,15 @@
         <div id="section-plate" style="display: none;">
             <!-- เพิ่มป้ายทะเบียนเป้าหมาย -->
             <div class="glass-card targets-toolbar" style="display: block;">
-                <h3 style="margin-bottom: 15px; color: var(--primary);">💳 เพิ่มป้ายทะเบียนเป้าหมาย</h3>
+                <h3 style="margin-bottom: 15px; color: var(--primary);"><i class="ri-id-card-line"></i> เพิ่มป้ายทะเบียนเป้าหมาย</h3>
                 <form id="add-plate-form" onsubmit="addPlateTarget(event)" style="display: flex; gap: 10px; width: 100%; flex-wrap: wrap;">
-                    <input type="text" id="plate_number" placeholder="หมายเลขทะเบียน (เช่น 1กข9999 หรือใส่เฉพาะตัวเลข 9999)" required style="flex: 1; min-width: 250px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
+                    <input type="text" id="plate_number" placeholder="หมายเลขทะเบียน (เช่น 1กข9999 หรือใส่เฉพาะตัวเลข 9999)" required style="flex: 1; min-width: 250px; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 0.82rem;">
 
-                    <input type="text" id="plate_note" placeholder="รายละเอียด / หมายเหตุ เช่น รถกระบะ Toyota Revo สีเงิน ต้องสงสัยคดี..." style="flex: 2; min-width: 250px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 1rem;">
-                    <button type="submit" class="btn btn-primary" id="btn-add-plate" style="white-space: nowrap;">➕ เพิ่มป้ายทะเบียน</button>
+                    <input type="text" id="plate_note" placeholder="รายละเอียด / หมายเหตุ เช่น รถกระบะ Toyota Revo สีเงิน ต้องสงสัยคดี..." style="flex: 2; min-width: 250px; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-body); font-size: 0.82rem;">
+                    <button type="submit" class="btn btn-primary" id="btn-add-plate" style="white-space: nowrap;"><i class="ri-add-circle-line"></i> เพิ่มป้ายทะเบียน</button>
                 </form>
             </div>
-            
+
             <div class="glass-card targets-toolbar" style="margin-top: 25px; padding: 15px 24px;">
                 <h3 style="margin: 0;">รายการป้ายทะเบียนเป้าหมาย</h3>
             </div>
@@ -260,16 +267,6 @@
 
     <script>
         const API_URL = "http://localhost:8081";
-        const nativeFetch = window.fetch.bind(window);
-        window.fetch = (resource, options = {}) => {
-            const apiKey = localStorage.getItem('cctv_api_key') || '';
-            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
-                const headers = new Headers(options.headers || {});
-                headers.set('X-API-Key', apiKey);
-                options = { ...options, headers };
-            }
-            return nativeFetch(resource, options);
-        };
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -344,8 +341,8 @@
             if (query === "") {
                 filteredPersonTargets = [...allPersonTargets];
             } else {
-                filteredPersonTargets = allPersonTargets.filter(t => 
-                    (t.name && t.name.toLowerCase().includes(query)) || 
+                filteredPersonTargets = allPersonTargets.filter(t =>
+                    (t.name && t.name.toLowerCase().includes(query)) ||
                     (t.base_name && t.base_name.toLowerCase().includes(query))
                 );
             }
@@ -391,8 +388,8 @@
                     <img src="${imgUrl}?t=${new Date().getTime()}" alt="${escapeHTML(target.name)}" class="target-img" title="คลิกเพื่อดูรูปขนาดเต็ม" onerror="this.src='https://via.placeholder.com/150'">
                     <div class="target-name">${escapeHTML(target.name)} <br><span class="target-group">(กลุ่ม: ${escapeHTML(target.base_name)})</span></div>
                     <div class="btn-group">
-                        <button class="btn btn-ghost btn-sm" data-action="rename">✏️ แก้ไขชื่อ</button>
-                        <button class="btn btn-soft-danger btn-sm" data-action="remove">🗑️ ลบ</button>
+                        <button class="btn btn-ghost btn-sm" data-action="rename"><i class="ri-edit-line"></i> แก้ไขชื่อ</button>
+                        <button class="btn btn-soft-danger btn-sm" data-action="remove"><i class="ri-delete-bin-line"></i> ลบ</button>
                     </div>
                 `;
                 card.querySelector(".target-img").addEventListener("click", () => openModal(imgUrl));
@@ -504,20 +501,20 @@
                 targets.forEach((target, index) => {
                     const card = document.createElement("div");
                     card.className = "target-card";
-                    
+
                     let mediaHTML = `<div style="font-size: 3rem; margin-bottom: 10px;">${(target.type || '').includes('มอเตอร์ไซค์') ? '🏍️' : '🚗'}</div>`;
                     if (target.filename) {
                         const imgUrl = safeAssetUrl('vehicle_targets_img', target.filename);
                         mediaHTML = `<img src="${imgUrl}?t=${new Date().getTime()}" alt="${escapeHTML(target.raw)}" class="target-img" data-img-url="${imgUrl}" title="คลิกเพื่อดูรูปขนาดเต็ม" onerror="this.src='https://via.placeholder.com/150'">`;
                     }
-                    
+
                     card.innerHTML = `
                         ${mediaHTML}
                         <div class="target-name">${escapeHTML(target.raw || (target.type + 'สี' + target.color))}</div>
                         <div class="target-group">ประเภท: ${escapeHTML(target.type)} <br> สี: ${escapeHTML(target.color)}</div>
                         <div class="btn-group" style="margin-top: 15px;">
-                            <button class="btn btn-ghost btn-sm" data-action="edit">✏️ แก้ไข</button>
-                            <button class="btn btn-soft-danger btn-sm" onclick="removeVehicleTarget(${index})">🗑️ ลบ</button>
+                            <button class="btn btn-ghost btn-sm" data-action="edit"><i class="ri-edit-line"></i> แก้ไข</button>
+                            <button class="btn btn-soft-danger btn-sm" onclick="removeVehicleTarget(${index})"><i class="ri-delete-bin-line"></i> ลบ</button>
                         </div>
                     `;
                     const img = card.querySelector(".target-img");
@@ -535,7 +532,7 @@
             e.preventDefault();
             const nameInput = document.getElementById("person_name");
             const fileInput = document.getElementById("person_file");
-            
+
             if (fileInput.files.length === 0) {
                 showToast("❌ กรุณาเลือกไฟล์ภาพใบหน้าบุคคล", true);
                 return;
@@ -590,12 +587,12 @@
             e.preventDefault();
             const text = document.getElementById("vehicle_text").value;
             const fileInput = document.getElementById("vehicle_file");
-            
+
             if (!text && fileInput.files.length === 0) {
                 showToast("❌ กรุณาพิมพ์ข้อความ หรืออัปโหลดรูปภาพรถ", true);
                 return;
             }
-            
+
             const btn = document.getElementById("btn-add-vehicle");
             btn.innerText = "กำลังเพิ่ม...";
             btn.disabled = true;
@@ -611,7 +608,7 @@
                     formData.append("text", text);
                     res = await fetch(`${API_URL}/add_vehicle_target`, { method: 'POST', body: formData });
                 }
-                
+
                 const data = await res.json();
                 if(data.status === 'success') {
                     showToast("✅ " + data.message);
@@ -752,8 +749,8 @@
                             <div style="font-size: 0.92rem; color: var(--text-main); font-weight: 600; margin-bottom: 4px; word-break: break-word;">${escapeHTML(noteStr || 'ไม่ระบุหมายเหตุ')}</div>
                             ${createdAt ? `<div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 14px;">ลงทะเบียน: ${escapeHTML(createdAt)}</div>` : '<div style="margin-bottom: 14px;"></div>'}
                             <div style="display: flex; gap: 8px; width: 100%; justify-content: center; margin-top: auto;">
-                                <button class="btn btn-ghost btn-sm" data-plate-edit="${index}">✏️ แก้ไข</button>
-                                <button class="btn btn-soft-danger btn-sm" onclick="removePlateTarget(${index})">🗑️ ลบ</button>
+                                <button class="btn btn-ghost btn-sm" data-plate-edit="${index}"><i class="ri-edit-line"></i> แก้ไข</button>
+                                <button class="btn btn-soft-danger btn-sm" onclick="removePlateTarget(${index})"><i class="ri-delete-bin-line"></i> ลบ</button>
                             </div>
                         </div>
                     `;

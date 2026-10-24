@@ -12,6 +12,6 @@
     {
         "id": "cctv_sample",
         "name": "CCTV ตัวอย่าง (RTSP Stream)",
-        "url": "rtsp://username:password@192.0.2.10:554/stream1"
+        "url": "rtsp://admin:password@192.168.1.100:554/stream1"
     }
 ]

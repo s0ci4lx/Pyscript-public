@@ -6,9 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ประวัติการตรวจจับ - CCTV AI</title>
     <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="theme.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .history-container {
@@ -30,7 +32,7 @@
         }
 
         .history-hero h1 {
-            font-size: 1.75rem;
+            font-size: 1.45rem;
             margin-bottom: 2px;
             letter-spacing: 0;
         }
@@ -38,7 +40,7 @@
         .history-hero p {
             margin: 0;
             max-width: none;
-            font-size: 0.96rem;
+            font-size: 0.82rem;
         }
 
         .history-status {
@@ -198,6 +200,44 @@
             flex-wrap: wrap;
         }
 
+        .view-mode-toggle {
+            display: inline-flex;
+            align-items: center;
+            background: var(--surface-2, rgba(15, 23, 42, 0.6));
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 3px;
+            gap: 3px;
+        }
+
+        .btn-view-mode {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 6px 12px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            border-radius: 7px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
+        }
+
+        .btn-view-mode:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-view-mode.active {
+            background: var(--primary);
+            color: #ffffff;
+            font-weight: 700;
+            box-shadow: 0 2px 10px rgba(14, 165, 233, 0.35);
+        }
+
         .btn-route {
             background: linear-gradient(135deg, #2563eb, #1d4ed8);
             box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
@@ -230,6 +270,10 @@
             width: 100%;
             height: 200px;
             background: var(--surface-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
         }
 
         .history-img-container img {
@@ -237,6 +281,26 @@
             height: 100%;
             object-fit: cover;
             cursor: zoom-in;
+            transition: transform 0.2s ease;
+        }
+
+        /* View Mode Dynamic Styles */
+        .history-grid.view-crop .history-img-container {
+            background: radial-gradient(circle, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 1) 100%);
+        }
+
+        .history-grid.view-crop .history-img-container img.history-card-img {
+            object-fit: contain;
+            padding: 6px;
+        }
+
+        .history-grid.view-crop .history-card:hover .history-img-container img.history-card-img {
+            transform: scale(1.04);
+        }
+
+        .history-grid.view-full .history-img-container img.history-card-img {
+            object-fit: cover;
+            padding: 0;
         }
 
         .history-checkbox {
@@ -257,22 +321,32 @@
         .history-head {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            gap: 8px;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
             margin-bottom: 10px;
+        }
+
+        .history-card-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
         }
 
         .history-name {
             font-family: var(--font-head);
-            font-size: 1.05rem;
+            font-size: 0.88rem;
             font-weight: 600;
             color: var(--primary);
             line-height: 1.35;
             word-break: break-word;
+            flex: 1;
+            min-width: 0;
         }
 
         .history-detail {
-            font-size: 0.88rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
             margin-bottom: 2px;
         }
@@ -432,7 +506,7 @@
     <div id="toast" class="toast">Notification Message</div>
 
     <!-- Navbar -->
-    
+
     <div class="browser-window">
         <div class="browser-header">
             <div class="mac-dots">
@@ -446,17 +520,25 @@
         </div>
         <div class="browser-content">
 <nav class="navbar">
-        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <a href="index.html" class="nav-logo"><i class="ri-radar-line"></i> AI <span>CCTV</span></a>
         <div class="nav-links">
-            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
-            <a href="history.html" class="nav-link active">🕒 ประวัติการตรวจจับ</a>
+            <a href="index.html" class="nav-link"><i class="ri-home-4-line"></i> หน้าหลัก (Live)</a>
+            <a href="live_hits.html" class="nav-link" target="_blank" title="เปิดหน้าต่างมอนิเตอร์สดจอแยก (Live Wall)"><i class="ri-tv-2-line"></i> จอมอนิเตอร์สด (Wall) ↗</a>
+            <a href="history.html" class="nav-link active"><i class="ri-history-line"></i> ประวัติการตรวจจับ</a>
             <div class="nav-dropdown">
-                <span class="nav-link">⚙️ จัดการระบบ ▾</span>
+                <span class="nav-link"><i class="ri-settings-4-line"></i> จัดการระบบ <i class="ri-arrow-down-s-line"></i></span>
                 <div class="dropdown-content">
-                    <a href="targets.html" class="dropdown-item">👥 จัดการเป้าหมาย</a>
-                    <a href="settings.html" class="dropdown-item">⚙️ ตั้งค่าระบบและกล้อง</a>
+                    <a href="targets.html" class="dropdown-item"><i class="ri-user-search-line"></i> จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item"><i class="ri-sound-module-line"></i> ตั้งค่าระบบและกล้อง</a>
                 </div>
             </div>
+            <button type="button" class="theme-toggle-btn" onclick="toggleAppTheme()" id="theme-toggle-btn" title="สลับธีม สว่าง / มืด" aria-label="สลับธีม สว่าง / มืด">
+                <span class="theme-toggle-track">
+                    <i class="ri-sun-fill theme-icon-sun"></i>
+                    <i class="ri-moon-fill theme-icon-moon"></i>
+                    <span class="theme-toggle-thumb"></span>
+                </span>
+            </button>
         </div>
     </nav>
 
@@ -469,7 +551,7 @@
             <div class="history-status">
                 <div class="status-tile">
                     <span>ช่วงเวลา</span>
-                    <strong id="date-range-label">วันนี้</strong>
+                    <strong id="date-range-label">ทั้งหมด</strong>
                 </div>
                 <div class="status-tile">
                     <span>ผลลัพธ์</span>
@@ -483,30 +565,30 @@
         <div class="glass-card filter-panel">
             <div class="filter-fields">
                 <div class="field">
-                    <label>วันที่เริ่มต้น</label>
+                    <label><i class="ri-calendar-line"></i> วันที่เริ่มต้น</label>
                     <input type="date" id="start_date">
                 </div>
                 <div class="field">
-                    <label>วันที่สิ้นสุด</label>
+                    <label><i class="ri-calendar-event-line"></i> วันที่สิ้นสุด</label>
                     <input type="date" id="end_date">
                 </div>
                 <div class="field">
-                    <label>เป้าหมาย</label>
+                    <label><i class="ri-user-search-line"></i> เป้าหมาย</label>
                     <input type="text" id="target_name" placeholder="ชื่อเป้าหมาย">
                 </div>
                 <div class="field">
-                    <label>เลขทะเบียน</label>
+                    <label><i class="ri-id-card-line"></i> เลขทะเบียน</label>
                     <input type="text" id="license_plate" placeholder="เช่น 3กข1234">
                 </div>
                 <div class="filter-field-actions">
-                    <button class="btn btn-primary" onclick="loadHistory()">🔍 ค้นหา</button>
-                    <button class="btn btn-ghost" onclick="resetFilters()">ล้างค่า</button>
+                    <button class="btn btn-primary" onclick="loadHistory()"><i class="ri-search-2-line"></i> ค้นหา</button>
+                    <button class="btn btn-ghost" onclick="resetFilters()"><i class="ri-refresh-line"></i> ล้างค่า</button>
                 </div>
                 <details class="advanced-filters">
-                    <summary>ตัวกรองเพิ่มเติม</summary>
+                    <summary><i class="ri-filter-3-line"></i> ตัวกรองเพิ่มเติม</summary>
                     <div class="advanced-filter-grid">
                         <div class="field">
-                            <label>ประเภทรถ</label>
+                            <label><i class="ri-car-line"></i> ประเภทรถ</label>
                             <select id="vehicle_type">
                                 <option value="">ทั้งหมด</option>
                                 <option value="รถเก๋ง">รถเก๋ง</option>
@@ -517,7 +599,7 @@
                             </select>
                         </div>
                         <div class="field">
-                            <label>สีรถ</label>
+                            <label><i class="ri-palette-line"></i> สีรถ</label>
                             <select id="vehicle_color">
                                 <option value="">ทั้งหมด</option>
                                 <option value="ขาว">ขาว</option>
@@ -530,11 +612,11 @@
                             </select>
                         </div>
                         <div class="field">
-                            <label>ประเภทบุคคล/เป้าหมาย</label>
+                            <label><i class="ri-focus-3-line"></i> ประเภทบุคคล/เป้าหมาย</label>
                             <select id="person_type">
                                 <option value="all">ทั้งหมด</option>
                                 <option value="target">เฉพาะเป้าหมาย</option>
-                                <option value="plate_target">💳 เฉพาะทะเบียนเป้าหมาย</option>
+                                <option value="plate_target">เฉพาะทะเบียนเป้าหมาย</option>
                                 <option value="unknown">เฉพาะทั่วไป</option>
                             </select>
                         </div>
@@ -545,19 +627,29 @@
 
         <div class="history-toolbar">
             <div id="results-count" class="results-summary">
-                <span class="summary-icon">🔎</span>
+                <span class="summary-icon"><i class="ri-file-list-3-line"></i></span>
                 <span>
                     พบประวัติการตรวจจับ 0 รายการ
                     <small>เรียงจากรายการล่าสุดก่อน</small>
                 </span>
             </div>
             <div class="toolbar-actions">
+                <div class="view-mode-toggle" role="group" aria-label="โหมดแสดงภาพ">
+                    <button type="button" class="btn-view-mode" id="btn-view-crop" onclick="setHistoryViewMode('crop')" title="แสดงภาพซูมเฉพาะวัตถุเป้าหมาย (Crop / Zoomed)">
+                        <i class="ri-zoom-in-line"></i> ภาพซูม
+                    </button>
+                    <button type="button" class="btn-view-mode" id="btn-view-full" onclick="setHistoryViewMode('full')" title="แสดงภาพมุมกว้างเต็มเฟรมจากกล้อง (Full Frame)">
+                        <i class="ri-aspect-ratio-line"></i> ภาพมุมกว้าง
+                    </button>
+                </div>
                 <label class="check-pill">
                     <input type="checkbox" id="selectAllCheckbox" onchange="selectAll(this)">
                     เลือกทั้งหมด
                 </label>
-                <button class="btn btn-soft-danger" onclick="bulkDelete()">🗑️ ลบที่เลือก</button>
-                <button class="btn btn-primary btn-route" id="btn-trace-route" onclick="traceRouteFromInput()">🗺️ ไล่เส้นทางผ่านกล้อง</button>
+                <button class="btn btn-soft-primary" id="btn-export-csv" onclick="exportHistoryCsv()" title="ส่งออกประวัติการตรวจจับเป็นไฟล์ CSV สำหรับเปิดใน Excel"><i class="ri-file-excel-2-line"></i> <span id="csv-btn-label">ส่งออก CSV</span></button>
+                <button class="btn btn-soft-primary" id="btn-download-zip" onclick="downloadSelectedOrAllZip()" title="ดาวน์โหลดผลการตรวจจับเป็นไฟล์ .zip"><i class="ri-file-zip-line"></i> <span id="zip-btn-label">ดาวน์โหลด .zip</span></button>
+                <button class="btn btn-soft-danger" onclick="bulkDelete()"><i class="ri-delete-bin-line"></i> ลบที่เลือก</button>
+                <button class="btn btn-primary btn-route" id="btn-trace-route" onclick="traceRouteFromInput()"><i class="ri-route-line"></i> ไล่เส้นทางผ่านกล้อง</button>
             </div>
         </div>
 
@@ -573,7 +665,7 @@
         <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 850px; width: 92%; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow-lg); position: relative; margin: auto;" onclick="event.stopPropagation()">
             <h2 id="route-modal-title" style="color: var(--primary); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-family: var(--font-head);">🗺️ เส้นทางผ่านกล้อง (Route Timeline)</h2>
             <div id="route-modal-subtitle" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 24px; border-bottom: 1px dashed var(--border); padding-bottom: 12px;"></div>
-            
+
             <div id="route-timeline-content" style="display: flex; flex-direction: column; gap: 16px; position: relative;">
                 <!-- Timeline items injected here -->
             </div>
@@ -587,7 +679,7 @@
         <button id="btn-prev-img" onclick="prevImage(event)" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10094;</button>
         <button id="btn-next-img" onclick="nextImage(event)" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10095;</button>
         <div style="display: flex; flex-direction: column; align-items: center; max-width: 95%; max-height: 95%; position: relative;" onclick="event.stopPropagation()">
-            
+
             <div id="modal-comparison-container" style="display: flex; gap: 20px; justify-content: center; align-items: center; margin-bottom: 12px; flex-wrap: nowrap; max-width: 100%;">
                 <!-- Reference Target -->
                 <div id="modal-ref-box" style="display: none; flex-direction: column; align-items: center;">
@@ -603,26 +695,17 @@
 
             <div id="modal-info-text" style="color: #ffffff; font-size: 1.1rem; font-weight: bold; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: center;"></div>
 
-            <div style="margin-top: 16px; display: flex; gap: 10px; justify-content: center;">
-                <button id="btn-crop-img" onclick="switchModalImg('crop')" class="btn btn-primary">🔍 ซูมเป้าหมาย</button>
-                <button id="btn-full-img" onclick="switchModalImg('full')" class="btn btn-ghost">🖼️ ภาพมุมกว้าง</button>
-                <button id="btn-edit-color" onclick="editVehicleColor()" class="btn btn-ghost" style="display: none;">🎨 แก้ไขสีรถ</button>
+            <div class="modal-actions-bar">
+                <button id="btn-crop-img" onclick="switchModalImg('crop')" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;"><i class="ri-zoom-in-line"></i> ซูมเป้าหมาย</button>
+                <button id="btn-full-img" onclick="switchModalImg('full')" class="btn btn-ghost" style="display: inline-flex; align-items: center; gap: 6px;"><i class="ri-image-line"></i> ภาพมุมกว้าง</button>
+                <button id="btn-download-modal" onclick="downloadCurrentModalImage()" class="btn btn-ghost" style="display: inline-flex; align-items: center; gap: 6px;"><i class="ri-download-2-line"></i> ดาวน์โหลดรูปนี้</button>
+                <button id="btn-edit-color" onclick="editVehicleColor()" class="btn btn-ghost" style="display: none; align-items: center; gap: 6px;"><i class="ri-palette-line"></i> แก้ไขสีรถ</button>
             </div>
         </div>
     </div>
 
     <script>
         const API_URL = "http://localhost:8081";
-        const nativeFetch = window.fetch.bind(window);
-        window.fetch = (resource, options = {}) => {
-            const apiKey = localStorage.getItem('cctv_api_key') || '';
-            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
-                const headers = new Headers(options.headers || {});
-                headers.set('X-API-Key', apiKey);
-                options = { ...options, headers };
-            }
-            return nativeFetch(resource, options);
-        };
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -643,6 +726,7 @@
         let currentFullUrl = "";
         let faceTargetsMap = {};
         let vehicleTargetsMap = {};
+        let historyViewMode = localStorage.getItem('history_view_mode') || 'crop';
 
         async function loadTargetsMap() {
             try {
@@ -670,16 +754,10 @@
             }
         }
 
-        // Set default dates (Today to Today) using local time
+        // Set default dates (ว่างไว้ = ค้นหาทั้งหมด ไม่จำกัดช่วงวัน)
         function setDefaultDates() {
-            const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            const todayStr = `${yyyy}-${mm}-${dd}`;
-
-            document.getElementById('start_date').value = todayStr;
-            document.getElementById('end_date').value = todayStr;
+            document.getElementById('start_date').value = '';
+            document.getElementById('end_date').value = '';
         }
 
         function resetFilters() {
@@ -724,6 +802,45 @@
             `;
         }
 
+        function setHistoryViewMode(mode) {
+            if (mode !== 'crop' && mode !== 'full') mode = 'crop';
+            historyViewMode = mode;
+            try {
+                localStorage.setItem('history_view_mode', mode);
+            } catch (e) {
+                console.warn("Cannot save history_view_mode:", e);
+            }
+
+            const btnCrop = document.getElementById('btn-view-crop');
+            const btnFull = document.getElementById('btn-view-full');
+            if (btnCrop) btnCrop.classList.toggle('active', mode === 'crop');
+            if (btnFull) btnFull.classList.toggle('active', mode === 'full');
+
+            const resultsDiv = document.getElementById('history-results');
+            if (resultsDiv) {
+                resultsDiv.classList.remove('view-crop', 'view-full');
+                resultsDiv.classList.add(mode === 'crop' ? 'view-crop' : 'view-full');
+
+                // Update cards in-place without resetting checked checkboxes
+                const cards = resultsDiv.querySelectorAll('.history-card');
+                cards.forEach((card, idx) => {
+                    const item = currentHistoryData[idx];
+                    if (item) {
+                        const imgEl = card.querySelector('img.history-card-img');
+                        if (imgEl) {
+                            const fullUrl = safeMediaUrl(item.full_url);
+                            const cropUrl = safeMediaUrl(item.img_url);
+                            const newUrl = mode === 'crop' ? (cropUrl || fullUrl) : (fullUrl || cropUrl);
+                            if (newUrl && imgEl.src !== newUrl) {
+                                imgEl.src = newUrl;
+                                imgEl.alt = mode === 'crop' ? 'ภาพซูม' : 'ภาพมุมกว้าง';
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
         async function loadHistory(silent = false) {
             const resultsDiv = document.getElementById('history-results');
             if (!silent) {
@@ -755,7 +872,10 @@
                     currentHistoryData = result.data || [];
                     updateHistorySummary(currentHistoryData.length);
                     if (currentHistoryData.length === 0) {
-                        resultsDiv.innerHTML = '<div class="empty-state">❌ ไม่พบประวัติการตรวจจับในช่วงเวลาที่กำหนด</div>';
+                        const emptyMsg = (startDate || endDate)
+                            ? '❌ ไม่พบประวัติการตรวจจับในช่วงเวลาที่กำหนด'
+                            : '❌ ไม่พบประวัติการตรวจจับในระบบ';
+                        resultsDiv.innerHTML = `<div class="empty-state">${emptyMsg}</div>`;
                         return;
                     }
 
@@ -768,17 +888,29 @@
                             hour: '2-digit', minute: '2-digit', second: '2-digit'
                         });
 
-                        const badgeHtml = item.is_color_edited ? `<span class="color-badge-edited">✓ แก้ไขสีแล้ว</span>` : '';
+                        const badgeHtml = item.is_color_edited ? `<span class="color-badge-edited"><i class="ri-check-line"></i> แก้ไขสีแล้ว</span>` : '';
                         const fullUrl = safeMediaUrl(item.full_url);
+                        const cropUrl = safeMediaUrl(item.img_url);
+                        const displayImgUrl = historyViewMode === 'crop' ? (cropUrl || fullUrl) : (fullUrl || cropUrl);
                         const plateImgUrl = safeMediaUrl(item.plate_img_url);
                         const cameraText = String(item.camera_url || '');
                         const confidence = Number(item.confidence) || 0;
 
+                        const rawItemName = (item.name || '').toLowerCase();
+                        let targetIconHtml = '<i class="ri-focus-3-line" style="color: #f43f5e; margin-right: 4px;"></i>';
+                        if (rawItemName.includes('บุคคลทั่วไป') || rawItemName.includes('person_')) {
+                            targetIconHtml = '<i class="ri-user-3-line" style="color: #06b6d4; margin-right: 4px;"></i>';
+                        } else if (rawItemName.includes('รถ') || rawItemName.includes('vehicle') || rawItemName.includes('car')) {
+                            targetIconHtml = '<i class="ri-car-line" style="color: #94a3b8; margin-right: 4px;"></i>';
+                        } else if (rawItemName.includes('ทะเบียน') || rawItemName.includes('[lpr]')) {
+                            targetIconHtml = '<i class="ri-id-card-line" style="color: #f59e0b; margin-right: 4px;"></i>';
+                        }
+
                         newHtml += `
                             <div class="history-card">
                                 <div class="history-img-container">
-                                    <input type="checkbox" class="history-checkbox" value="${Number(item.id) || 0}">
-                                    <img src="${fullUrl}" alt="Full Image" onclick="openModalByIndex(${index})" title="คลิกเพื่อดูรูปเต็ม">
+                                    <input type="checkbox" class="history-checkbox" value="${Number(item.id) || 0}" onchange="updateZipButtonLabel()">
+                                    <img src="${displayImgUrl}" alt="${historyViewMode === 'crop' ? 'ภาพซูม' : 'ภาพมุมกว้าง'}" class="history-card-img" onclick="openModalByIndex(${index})" title="คลิกเพื่อดูรูปขยาย" onerror="this.onerror=null; this.src='${fullUrl}';">
                                     ${plateImgUrl ? `
                                     <div class="plate-thumb">
                                         <img src="${plateImgUrl}" title="ภาพป้ายทะเบียน">
@@ -787,12 +919,19 @@
                                 </div>
                                 <div class="history-info">
                                     <div class="history-head">
-                                        <div class="history-name">🎯 ${escapeHTML(item.name)} ${badgeHtml}</div>
-                                        <button class="btn btn-soft-danger btn-sm" onclick="deleteHistory(${Number(item.id) || 0})">🗑️ ลบ</button>
+                                        <div class="history-name">${targetIconHtml}${escapeHTML(item.name)} ${badgeHtml}</div>
+                                        <div class="history-card-actions">
+                                            <button class="btn-icon-download" onclick="downloadSingleHit(${index})" title="ดาวน์โหลดรูปภาพนี้" aria-label="ดาวน์โหลด">
+                                                <i class="ri-download-2-line"></i>
+                                            </button>
+                                            <button class="btn-icon-delete" onclick="deleteHistory(${Number(item.id) || 0})" title="ลบรายการนี้" aria-label="ลบ">
+                                                <i class="ri-delete-bin-line"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="history-meta">
-                                        <div class="history-detail">🕒 ${escapeHTML(thaiDate)}</div>
-                                        <div class="history-detail">📷 ${escapeHTML(cameraText.substring(0, 36))}${cameraText.length > 36 ? '...' : ''}</div>
+                                        <div class="history-detail"><i class="ri-time-line"></i> ${escapeHTML(thaiDate)}</div>
+                                        <div class="history-detail"><i class="ri-cctv-line"></i> ${escapeHTML(cameraText.substring(0, 36))}${cameraText.length > 36 ? '...' : ''}</div>
                                     </div>
                                     <div class="confidence-row">
                                         <div class="history-detail">มั่นใจ: ${confidence}%</div>
@@ -803,6 +942,8 @@
                         `;
                     });
                     resultsDiv.innerHTML = newHtml;
+                    resultsDiv.className = `history-grid view-${historyViewMode}`;
+                    updateZipButtonLabel();
                 } else {
                     if (!silent) resultsDiv.innerHTML = `<div class="empty-state">❌ เกิดข้อผิดพลาด: ${escapeHTML(result.message)}</div>`;
                 }
@@ -842,12 +983,14 @@
             } else {
                 refBox.style.display = "none";
                 detectLabel.style.display = "none";
-                infoText.innerHTML = `🎯 ตรวจพบ: ${escapeHTML(item.name)}${badgeText} (ความมั่นใจ: ${Number(item.confidence) || 0}%)`;
+                const isGeneralPerson = rawName.includes("บุคคลทั่วไป") || rawName.toLowerCase().includes("person_");
+                const icon = isGeneralPerson ? '👤' : (rawName.includes("รถ") ? '🚗' : '🎯');
+                infoText.innerHTML = `${icon} ตรวจพบ: <strong style="color: #38bdf8;">${escapeHTML(item.name)}</strong>${badgeText} (ความมั่นใจ: <span style="color: #fbbf24; font-weight: 800;">${Number(item.confidence) || 0}%</span>)`;
             }
 
-            switchModalImg(refImgUrl ? 'crop' : 'full'); // ซูมเป้าหมายหากมีภาพอ้างอิงเปรียบเทียบ
+            switchModalImg(refImgUrl ? 'crop' : (historyViewMode === 'crop' ? 'crop' : 'full')); // เปิดโหมดภาพซูมหรือเต็มเฟรมตามการตั้งค่ามุมมอง
             updateModalNavigationButtons();
-            
+
             const editColorBtn = document.getElementById("btn-edit-color");
             if (item.name && item.name.includes("รถ")) {
                 editColorBtn.style.display = "block";
@@ -869,7 +1012,7 @@
                 Swal.fire('ข้อผิดพลาด', 'ไม่พบข้อมูล Hit ID ของรถคันนี้', 'error');
                 return;
             }
-            
+
             const { value: color } = await Swal.fire({
                 title: 'แก้ไขสีรถ',
                 input: 'select',
@@ -909,12 +1052,12 @@
                     if (result.status === 'success') {
                         Swal.fire('สำเร็จ!', result.message, 'success');
                         item.is_color_edited = 1;
-                        
+
                         // update modal button immediately
                         const editColorBtn = document.getElementById("btn-edit-color");
                         editColorBtn.innerHTML = "✓ แก้ไขสีแล้ว";
                         editColorBtn.className = "btn btn-success";
-                        
+
                         // update modal title/info with badge
                         const rawName = String(item.name || "").split(" (#")[0];
                         const refImgUrl = faceTargetsMap[rawName] || vehicleTargetsMap[rawName];
@@ -1015,6 +1158,296 @@
             checkboxes.forEach(cb => {
                 cb.checked = isChecked;
             });
+            updateZipButtonLabel();
+        }
+
+        function updateZipButtonLabel() {
+            const checkedBoxes = document.querySelectorAll('.history-checkbox:checked');
+            const labelSpan = document.getElementById('zip-btn-label');
+            const btnZip = document.getElementById('btn-download-zip');
+            const csvLabelSpan = document.getElementById('csv-btn-label');
+            const btnCsv = document.getElementById('btn-export-csv');
+
+            if (labelSpan && btnZip) {
+                if (checkedBoxes.length > 0) {
+                    labelSpan.innerText = `ดาวน์โหลดที่เลือก (${checkedBoxes.length}) (.zip)`;
+                    btnZip.title = `ดาวน์โหลดรายการที่เลือก ${checkedBoxes.length} รายการเป็นไฟล์ .zip`;
+                } else {
+                    labelSpan.innerText = `ดาวน์โหลด .zip`;
+                    btnZip.title = `ดาวน์โหลดทั้งหมด หรือเลือกรายการที่ต้องการเป็นไฟล์ .zip`;
+                }
+            }
+
+            if (csvLabelSpan && btnCsv) {
+                if (checkedBoxes.length > 0) {
+                    csvLabelSpan.innerText = `ส่งออก CSV (${checkedBoxes.length})`;
+                    btnCsv.title = `ส่งออกรายการที่เลือก ${checkedBoxes.length} รายการเป็นไฟล์ CSV`;
+                } else {
+                    csvLabelSpan.innerText = `ส่งออก CSV`;
+                    btnCsv.title = `ส่งออกทั้งหมด หรือรายการที่เลือกเป็นไฟล์ CSV สำหรับ Excel`;
+                }
+            }
+        }
+
+        async function downloadSingleHit(index) {
+            const item = currentHistoryData[index];
+            if (!item) return;
+
+            const targetUrl = historyViewMode === 'crop'
+                ? safeMediaUrl(item.img_url || item.full_url)
+                : safeMediaUrl(item.full_url || item.img_url);
+            if (!targetUrl) {
+                Swal.fire('ข้อผิดพลาด', 'ไม่พบไฟล์รูปภาพสำหรับดาวน์โหลด', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(targetUrl);
+                if (!res.ok) throw new Error("ดาวน์โหลดรูปภาพไม่สำเร็จ");
+                const blob = await res.blob();
+
+                const dateStr = (item.timestamp || '').replace(/[: ]/g, '_');
+                const cleanName = (item.name || 'target').replace(/[^a-zA-Z0-9ก-๙_-]/g, '_');
+                const isCrop = targetUrl === safeMediaUrl(item.img_url);
+                const filename = `${dateStr}_${cleanName}_${isCrop ? 'crop' : 'full'}_ID${item.id || index}.jpg`;
+
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+                console.error("Download error:", err);
+                const a = document.createElement('a');
+                a.href = targetUrl;
+                a.download = `detection_${item.id || index}.jpg`;
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        }
+
+        async function downloadCurrentModalImage() {
+            const item = currentHistoryData[currentModalImageIndex];
+            const modalImg = document.getElementById("modalImg");
+            const currentSrc = modalImg ? modalImg.src : null;
+
+            if (!currentSrc) {
+                Swal.fire('ข้อผิดพลาด', 'ไม่พบรูปภาพที่จะดาวน์โหลด', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(currentSrc);
+                if (!res.ok) throw new Error("ดาวน์โหลดรูปภาพไม่สำเร็จ");
+                const blob = await res.blob();
+
+                const dateStr = item ? (item.timestamp || '').replace(/[: ]/g, '_') : 'image';
+                const cleanName = item ? (item.name || 'target').replace(/[^a-zA-Z0-9ก-๙_-]/g, '_') : 'detection';
+                const isCrop = currentSrc === currentCropUrl;
+                const filename = `${dateStr}_${cleanName}_${isCrop ? 'crop' : 'full'}.jpg`;
+
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+                console.error("Modal download error:", err);
+                const a = document.createElement('a');
+                a.href = currentSrc;
+                a.download = `cctv_image.jpg`;
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        }
+
+        async function downloadSelectedOrAllZip() {
+            const checkedBoxes = document.querySelectorAll('.history-checkbox:checked');
+            const selectedIds = Array.from(checkedBoxes).map(cb => Number(cb.value)).filter(v => v > 0);
+
+            if (selectedIds.length === 0) {
+                if (!currentHistoryData || currentHistoryData.length === 0) {
+                    Swal.fire({
+                        title: 'แจ้งเตือน',
+                        text: 'ไม่พบรายการประวัติการตรวจจับสำหรับดาวน์โหลด',
+                        icon: 'info',
+                        confirmButtonText: 'ตกลง'
+                    });
+                    return;
+                }
+
+                const result = await Swal.fire({
+                    title: '📦 ดาวน์โหลดไฟล์ .zip ทั้งหมด',
+                    text: `ต้องการดาวน์โหลดภาพผลการตรวจจับทั้งหมดในหน้านี้ (${currentHistoryData.length} รายการ) รวมเป็นไฟล์ .zip ใช่หรือไม่?`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'ดาวน์โหลดทั้งหมด (.zip)',
+                    cancelButtonText: 'ยกเลิก',
+                    confirmButtonColor: '#0284c7'
+                });
+
+                if (!result.isConfirmed) return;
+            }
+
+            const btnZip = document.getElementById('btn-download-zip');
+            const originalContent = btnZip ? btnZip.innerHTML : '';
+            if (btnZip) {
+                btnZip.disabled = true;
+                btnZip.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> กำลังสร้างไฟล์ .zip...';
+            }
+
+            try {
+                const idsToSend = selectedIds.length > 0 ? selectedIds : currentHistoryData.map(item => Number(item.id)).filter(v => v > 0);
+
+                const res = await fetch(`${API_URL}/history/download_zip`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: idsToSend })
+                });
+
+                if (!res.ok) {
+                    let errMsg = 'เกิดข้อผิดพลาดในการสร้างไฟล์ .zip';
+                    try {
+                        const errJson = await res.json();
+                        if (errJson && errJson.message) errMsg = errJson.message;
+                    } catch (_) {}
+                    throw new Error(errMsg);
+                }
+
+                const blob = await res.blob();
+                let downloadFilename = `cctv_detections_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.zip`;
+
+                const disposition = res.headers.get('Content-Disposition');
+                if (disposition && disposition.includes('filename=')) {
+                    const match = disposition.match(/filename="?([^";]+)"?/);
+                    if (match && match[1]) {
+                        downloadFilename = match[1];
+                    }
+                }
+
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = downloadFilename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(blobUrl);
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ดาวน์โหลดเรียบร้อย',
+                    text: `บันทึกไฟล์ "${downloadFilename}" สำเร็จแล้ว`,
+                    timer: 2500,
+                    showConfirmButton: false
+                });
+            } catch (err) {
+                console.error("ZIP download error:", err);
+                Swal.fire('ข้อผิดพลาด', err.message || 'ไม่สามารถดาวน์โหลดไฟล์ .zip ได้', 'error');
+            } finally {
+                if (btnZip) {
+                    btnZip.disabled = false;
+                    btnZip.innerHTML = originalContent;
+                    updateZipButtonLabel();
+                }
+            }
+        }
+
+        async function exportHistoryCsv() {
+            if (!currentHistoryData || currentHistoryData.length === 0) {
+                Swal.fire('ไม่มีข้อมูล', 'ไม่พบข้อมูลประวัติการตรวจจับสำหรับส่งออก', 'info');
+                return;
+            }
+
+            const checkboxes = document.querySelectorAll('.history-checkbox:checked');
+            const selectedIds = Array.from(checkboxes).map(cb => Number(cb.value)).filter(v => v > 0);
+
+            if (selectedIds.length === 0) {
+                const result = await Swal.fire({
+                    title: 'ส่งออกข้อมูลเป็น CSV / Excel',
+                    text: `ต้องการส่งออกประวัติการตรวจจับทั้งหมด (${currentHistoryData.length} รายการ) เป็นไฟล์ CSV สำหรับเปิดดูใน Excel ใช่หรือไม่?`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'ส่งออก CSV',
+                    cancelButtonText: 'ยกเลิก',
+                    confirmButtonColor: '#10b981'
+                });
+
+                if (!result.isConfirmed) return;
+            }
+
+            const btnCsv = document.getElementById('btn-export-csv');
+            const originalContent = btnCsv ? btnCsv.innerHTML : '';
+            if (btnCsv) {
+                btnCsv.disabled = true;
+                btnCsv.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> กำลังส่งออก CSV...';
+            }
+
+            try {
+                const idsToSend = selectedIds.length > 0 ? selectedIds : currentHistoryData.map(item => Number(item.id)).filter(v => v > 0);
+
+                const res = await fetch(`${API_URL}/history/export_csv`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: idsToSend })
+                });
+
+                if (!res.ok) {
+                    let errMsg = 'เกิดข้อผิดพลาดในการสร้างไฟล์ CSV';
+                    try {
+                        const errJson = await res.json();
+                        if (errJson && errJson.message) errMsg = errJson.message;
+                    } catch (_) {}
+                    throw new Error(errMsg);
+                }
+
+                const blob = await res.blob();
+                let downloadFilename = `cctv_detections_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+
+                const disposition = res.headers.get('Content-Disposition');
+                if (disposition && disposition.includes('filename=')) {
+                    const match = disposition.match(/filename="?([^";]+)"?/);
+                    if (match && match[1]) {
+                        downloadFilename = match[1];
+                    }
+                }
+
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = downloadFilename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(blobUrl);
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ส่งออกไฟล์ CSV สำเร็จ',
+                    text: `บันทึกไฟล์ "${downloadFilename}" เรียบร้อยแล้ว (สามารถเปิดใน Microsoft Excel หรือ Numbers ได้ทันที)`,
+                    timer: 2500,
+                    showConfirmButton: false
+                });
+            } catch (err) {
+                console.error("CSV export error:", err);
+                Swal.fire('ข้อผิดพลาด', err.message || 'ไม่สามารถส่งออกไฟล์ CSV ได้', 'error');
+            } finally {
+                if (btnCsv) {
+                    btnCsv.disabled = false;
+                    btnCsv.innerHTML = originalContent;
+                    updateZipButtonLabel();
+                }
+            }
         }
 
         async function bulkDelete() {
@@ -1039,7 +1472,7 @@
                         // Reset "Select All" checkbox
                         const selectAllCb = document.getElementById('selectAllCheckbox');
                         if (selectAllCb) selectAllCb.checked = false;
-                        
+
                         loadHistory();
                     } else {
                         alert("Error: " + result.message);
@@ -1150,6 +1583,7 @@
 
         // Load on start
         window.onload = async () => {
+            setHistoryViewMode(historyViewMode);
             setDefaultDates();
             try {
                 await Promise.all([
@@ -1161,7 +1595,7 @@
             } finally {
                 hideLoader();
             }
-            
+
             // Auto-refresh every 5 seconds
             setInterval(() => {
                 const checkboxes = document.querySelectorAll('.history-checkbox:checked');

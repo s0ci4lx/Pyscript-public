@@ -1,37 +1,45 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# เมื่อปิดหน้าต่าง Terminal ให้ปิดโปรเซสทั้งหมดด้วย
-trap "kill 0" EXIT
+cleanup() {
+    [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
+    [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 echo "====================================="
 echo "   🚀 Starting CCTV AI System..."
 echo "====================================="
 
-echo "[0/2] Cleaning up old processes..."
-lsof -ti:8000 | xargs kill -9 2>/dev/null
-lsof -ti:8081 | xargs kill -9 2>/dev/null
-sleep 1
+echo "🧹 ตรวจสอบและปิดโปรเซสเดิมที่ค้างอยู่..."
+for port in 8081 8000; do
+    pids=$(lsof -ti :$port 2>/dev/null)
+    if [ -n "$pids" ]; then
+        echo "   - เคลียร์พอร์ต $port (PID: $pids)"
+        echo "$pids" | xargs kill -9 2>/dev/null || true
+    fi
+done
+pkill -f "rtsp_yolo_backend.py" 2>/dev/null || true
+pkill -f "serve_frontend.py" 2>/dev/null || true
+sleep 0.5
 
-echo "Checking and installing required packages from requirements.txt..."
-python3 -m pip install --upgrade pip wheel "setuptools<81"
-python3 -m pip install -r requirements.txt
+echo "[0/2] Preparing isolated environment..."
+python3 bootstrap.py || exit 1
+PYTHON_BIN=".venv/bin/python"
+"$PYTHON_BIN" check_ports.py || exit 1
 
 export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 echo "[1/2] Starting Backend (Port 8081)..."
-while true; do
-    export PYTORCH_ENABLE_MPS_FALLBACK=1
-    python3 rtsp_yolo_backend.py
-    echo "Backend process exited, restarting in 1s..."
-    sleep 1
-done &
+"$PYTHON_BIN" rtsp_yolo_backend.py &
+BACKEND_PID=$!
 
 echo "[2/2] Starting Frontend (Port 8000)..."
-python3 -m http.server 8000 &
+"$PYTHON_BIN" serve_frontend.py &
+FRONTEND_PID=$!
 
 echo "Opening Web Browser..."
-sleep 2
+"$PYTHON_BIN" wait_for_backend.py || exit 1
 open http://localhost:8000
 
 echo "====================================="

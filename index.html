@@ -4,54 +4,142 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Face Recognition CCTV</title>
-    <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="app.css?v=20260926-4">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="dashboard.css?v=20261024-2">
+    <script src="theme.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        /* In-Browser Fullscreen Mode Styles (Theater Mode) */
+        /* Modern Fullscreen Styles (Native Fullscreen + In-Browser Fallback) */
+        #video-container:fullscreen,
+        #video-container:-webkit-full-screen,
         .in-browser-fullscreen {
             position: fixed !important;
             top: 0 !important;
             left: 0 !important;
             width: 100vw !important;
             height: 100vh !important;
-            z-index: 9999 !important;
+            z-index: 999999 !important;
             background-color: #000 !important;
             display: flex !important;
-            flex-direction: column;
-            justify-content: center;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            align-items: center !important;
             padding: 0 !important;
             margin: 0 !important;
+            border: none !important;
             border-radius: 0 !important;
+            overflow: hidden !important;
         }
+
+        /* Hide background page elements in fallback fullscreen */
+        body.body-fullscreen-active {
+            overflow: hidden !important;
+        }
+        body.body-fullscreen-active .navbar,
+        body.body-fullscreen-active .header-banner,
+        body.body-fullscreen-active .control-panel,
+        body.body-fullscreen-active .stats-grid,
+        body.body-fullscreen-active .card-inset,
+        body.body-fullscreen-active .cctv-grid-toolbar,
+        body.body-fullscreen-active aside {
+            display: none !important;
+        }
+        body.body-fullscreen-active .main-dashboard-grid,
+        body.body-fullscreen-active .glass-card {
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        /* Fullscreen header overlay */
+        #video-container:fullscreen .cctv-card-header,
+        #video-container:-webkit-full-screen .cctv-card-header,
+        .in-browser-fullscreen .cctv-card-header {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 50 !important;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%) !important;
+            border-bottom: none !important;
+            padding: 16px 24px !important;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #video-container:fullscreen:hover .cctv-card-header,
+        #video-container:-webkit-full-screen:hover .cctv-card-header,
+        .in-browser-fullscreen:hover .cctv-card-header,
+        #video-container.controls-visible .cctv-card-header {
+            opacity: 1 !important;
+        }
+
+        /* Plot box & Video element in Fullscreen */
+        #video-container:fullscreen .plot-box,
+        #video-container:-webkit-full-screen .plot-box,
         .in-browser-fullscreen .plot-box {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #000;
-            padding: 0;
-            margin: 0;
-            border: none;
+            flex: 1 !important;
+            width: 100% !important;
+            height: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: #000 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
         }
+
+        #video-container:fullscreen img#video-feed,
+        #video-container:-webkit-full-screen img#video-feed,
         .in-browser-fullscreen img#video-feed {
-            max-height: calc(100vh - 70px) !important;
-            width: auto !important;
-            max-width: 100%;
-            object-fit: contain;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100vh !important;
+            max-width: 100vw !important;
+            object-fit: contain !important;
+            background: #000 !important;
         }
-        .in-browser-fullscreen .media-controls {
-            background-color: #1a1b1e !important;
-            border-top: 1px solid #2d2e33;
-            padding: 15px !important;
-            position: relative;
-            z-index: 100;
-            display: flex;
-            justify-content: center;
-            margin-top: 0;
+
+        #video-container:fullscreen #video-mockup,
+        #video-container:-webkit-full-screen #video-mockup,
+        .in-browser-fullscreen #video-mockup {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 100% !important;
             border-radius: 0 !important;
+            background: radial-gradient(circle, #111827 0%, #030712 100%) !important;
+        }
+
+        /* Fullscreen bottom controls overlay */
+        #video-container:fullscreen .media-controls,
+        #video-container:-webkit-full-screen .media-controls,
+        .in-browser-fullscreen .media-controls {
+            position: absolute !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 50 !important;
+            background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%) !important;
+            border-top: none !important;
+            padding: 20px !important;
+            display: flex !important;
+            justify-content: center !important;
+            border-radius: 0 !important;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #video-container:fullscreen:hover .media-controls,
+        #video-container:-webkit-full-screen:hover .media-controls,
+        .in-browser-fullscreen:hover .media-controls,
+        #video-container.controls-visible .media-controls {
+            opacity: 1 !important;
         }
         @keyframes spin {
             to { transform: rotate(360deg); }
@@ -62,35 +150,98 @@
         }
     </style>
     <script>
+        var fullscreenActivityTimer = null;
+        function showFullscreenControlsTemporarily() {
+            var container = document.getElementById("video-container");
+            if (!container) return;
+            container.classList.add("controls-visible");
+            clearTimeout(fullscreenActivityTimer);
+            fullscreenActivityTimer = setTimeout(function() {
+                container.classList.remove("controls-visible");
+            }, 3000);
+        }
+
         function toggleFullScreen() {
             var container = document.getElementById("video-container");
             var btn = document.getElementById("btn-fullscreen");
-            container.classList.toggle("in-browser-fullscreen");
-            
-            // To prevent scrolling of the main body when in fullscreen
-            if (container.classList.contains("in-browser-fullscreen")) {
-                document.body.style.overflow = "hidden";
-                btn.innerHTML = "↙️"; // Exit fullscreen icon
-                btn.title = "ย่อจอ (Exit Fullscreen)";
+            var isNative = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+
+            if (!isNative && !container.classList.contains("in-browser-fullscreen")) {
+                var req = container.requestFullscreen || container.webkitRequestFullscreen;
+                if (req) {
+                    req.call(container).catch(function(err) {
+                        enterFallbackFullscreen(container, btn);
+                    });
+                } else {
+                    enterFallbackFullscreen(container, btn);
+                }
             } else {
-                document.body.style.overflow = "auto";
-                btn.innerHTML = "📺"; // Enter fullscreen icon
+                if (isNative) {
+                    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+                    if (exit) {
+                        exit.call(document).catch(function() {});
+                    }
+                }
+                exitFallbackFullscreen(container, btn);
+            }
+        }
+
+        function enterFallbackFullscreen(container, btn) {
+            container.classList.add("in-browser-fullscreen");
+            document.body.classList.add("body-fullscreen-active");
+            if (btn) {
+                btn.innerHTML = '<i class="ri-fullscreen-exit-line"></i>';
+                btn.title = "ย่อจอ (Exit Fullscreen)";
+            }
+        }
+
+        function exitFallbackFullscreen(container, btn) {
+            container.classList.remove("in-browser-fullscreen");
+            document.body.classList.remove("body-fullscreen-active");
+            if (btn) {
+                btn.innerHTML = '<i class="ri-fullscreen-line"></i>';
                 btn.title = "เต็มจอ (Fullscreen)";
             }
         }
+
+        function handleFullscreenChange() {
+            var container = document.getElementById("video-container");
+            var btn = document.getElementById("btn-fullscreen");
+            var isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+            if (btn) {
+                btn.innerHTML = isFs ? '<i class="ri-fullscreen-exit-line"></i>' : '<i class="ri-fullscreen-line"></i>';
+                btn.title = isFs ? "ย่อจอ (Exit Fullscreen)" : "เต็มจอ (Fullscreen)";
+            }
+            if (!isFs && container) {
+                container.classList.remove("in-browser-fullscreen");
+                document.body.classList.remove("body-fullscreen-active");
+            }
+        }
+
+        document.addEventListener("fullscreenchange", handleFullscreenChange);
+        document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+
+        document.addEventListener("DOMContentLoaded", function() {
+            var vc = document.getElementById("video-container");
+            if (vc) {
+                vc.addEventListener("mousemove", showFullscreenControlsTemporarily);
+                vc.addEventListener("touchstart", showFullscreenControlsTemporarily, { passive: true });
+            }
+        });
     </script>
 </head>
-<body>
+<body class="command-center">
     <!-- Global Page Loader -->
     <div id="page-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.5s ease, visibility 0.5s;">
         <div style="width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
         <div style="color: #ffffff; font-family: var(--font-head); font-size: 1.2rem; font-weight: 500; letter-spacing: 0.5px;">กำลังโหลดระบบ CCTV AI...</div>
     </div>
     <!-- Toast Notification -->
+    <a class="skip-link" href="#main-content">ข้ามไปยังภาพกล้อง</a>
     <div id="toast" class="toast">Notification Message</div>
 
     <!-- Navbar -->
-    
+
     <div class="browser-window">
         <div class="browser-header">
             <div class="mac-dots">
@@ -104,95 +255,95 @@
         </div>
         <div class="browser-content">
 <nav class="navbar">
-        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <a href="index.html" class="nav-logo"><i class="ri-radar-line"></i> AI <span>CCTV</span></a>
         <div class="nav-links">
-            <a href="index.html" class="nav-link active">🏠 หน้าหลัก (Live)</a>
-            <a href="history.html" class="nav-link">🕒 ประวัติการตรวจจับ</a>
+            <a href="index.html" class="nav-link active" aria-current="page"><i class="ri-home-4-line"></i> หน้าหลัก (Live)</a>
+            <a href="live_hits.html" class="nav-link" target="_blank" title="เปิดหน้าต่างมอนิเตอร์สดจอแยก (Live Wall)"><i class="ri-tv-2-line"></i> จอมอนิเตอร์สด (Wall) ↗</a>
+            <a href="history.html" class="nav-link"><i class="ri-history-line"></i> ประวัติการตรวจจับ</a>
             <div class="nav-dropdown">
-                <span class="nav-link">⚙️ จัดการระบบ ▾</span>
+                <button type="button" class="nav-link"><i class="ri-settings-4-line"></i> จัดการระบบ <i class="ri-arrow-down-s-line"></i></button>
                 <div class="dropdown-content">
-                    <a href="targets.html" class="dropdown-item">👥 จัดการเป้าหมาย</a>
-                    <a href="settings.html" class="dropdown-item">⚙️ ตั้งค่าระบบและกล้อง</a>
+                    <a href="targets.html" class="dropdown-item"><i class="ri-user-search-line"></i> จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item"><i class="ri-sound-module-line"></i> ตั้งค่าระบบและกล้อง</a>
                 </div>
             </div>
+            <button type="button" class="theme-toggle-btn" onclick="toggleAppTheme()" id="theme-toggle-btn" title="สลับธีม สว่าง / มืด" aria-label="สลับธีม สว่าง / มืด">
+                <span class="theme-toggle-track">
+                    <i class="ri-sun-fill theme-icon-sun"></i>
+                    <i class="ri-moon-fill theme-icon-moon"></i>
+                    <span class="theme-toggle-thumb"></span>
+                </span>
+            </button>
         </div>
     </nav>
 
     <header class="hero">
-        <h1>AI CCTV <span>Dashboard</span></h1>
-        <p>ระบบ AI ตรวจจับบุคคลและยานพาหนะเป้าหมายอัจฉริยะ</p>
+        <h1>ศูนย์ควบคุมกล้อง</h1>
+        <p>ติดตามภาพกล้อง ตรวจจับเป้าหมาย และตรวจสอบเหตุการณ์</p>
     </header>
 
-    <main class="container">
-        <!-- Controls Section -->
-        <div class="glass-card controls-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 0;">
-            
-            <!-- Top Row: Essential Camera & Primary Action -->
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%; gap: 16px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
-                <div style="display: flex; gap: 16px; align-items: flex-end; flex-grow: 1;">
-                    <div class="field" style="flex-grow: 1; max-width: 400px;">
-                        <label for="camera-select" style="font-weight: 600; color: var(--primary);">🎥 แหล่งข้อมูลวิดีโอ (Camera / Video Source)</label>
-                        <select id="camera-select" onchange="changeCamera()" style="width: 100%; height: 42px;">
-                            <option value="">กำลังโหลดกล้อง...</option>
-                        </select>
+    <main class="container" id="main-content">
+            <!-- Controls Section -->
+        <div class="glass-card controls-panel controls-panel-compact">
+            <!-- Toggles & Primary Action -->
+            <div class="controls-options-row">
+                <div class="controls-settings-row controls-toggle-row" role="group" aria-labelledby="toggle-controls-label">
+                    <div class="controls-row-label" id="toggle-controls-label">
+                        <i class="ri-toggle-line"></i>
+                        <span>การเปิดใช้งาน</span>
                     </div>
-                    <div class="field" id="frame-skip-container" style="display: none;">
-                        <label for="frame-skip" title="ข้ามเฟรมเพื่อลดความหน่วง (0 = ไม่ข้าม, แนะนำ 3 สำหรับ YouTube)">⏭️ ข้ามเฟรม</label>
-                        <input type="number" id="frame-skip" min="0" max="10" value="0" onchange="setFrameSkip()" style="width: 80px; height: 42px; text-align: center;" title="0 = ไม่ข้าม, แนะนำ 3 สำหรับ YouTube">
+                    <div class="controls-toggle-list">
+                        <label class="check-pill" id="pill-detect-any-person" title="เปิดตรวจจับและบันทึกบุคคลทั่วไปทุกคนที่พบ (หากปิดจะตรวจจับเฉพาะบุคคลเป้าหมายเท่านั้น)">
+                            <input type="checkbox" id="detect-any-person" checked onchange="toggleDetectAnyPerson()">
+                            <i class="ri-user-search-line"></i> ตรวจจับบุคคลทั่วไป
+                        </label>
+                        <label class="check-pill" title="แสดงเส้นตีกรอบเฉพาะเป้าหมายเท่านั้น">
+                            <input type="checkbox" id="show-only-targets" onchange="toggleShowOnlyTargets()">
+                            <i class="ri-focus-3-line"></i> เฉพาะเป้าหมาย
+                        </label>
+                        <label class="check-pill" title="แสดงเส้นขอบเขตพื้นที่หรือเส้นข้ามบนวิดีโอ">
+                            <input type="checkbox" id="show-detection-zone" checked onchange="toggleShowDetectionZone()">
+                            <i class="ri-shape-line"></i> แสดงพื้นที่/เส้นข้าม
+                        </label>
+                        <label class="check-pill" title="เปิดใช้งานระบบอ่านป้ายทะเบียนรถยนต์ (LPR)">
+                            <input type="checkbox" id="enable-lpr" onchange="toggleLPR()">
+                            <i class="ri-id-card-line"></i> อ่านป้ายทะเบียน (LPR)
+                        </label>
+                        <button class="btn btn-primary btn-add-target-compact" onclick="openTargetModal()">
+                            <i class="ri-add-circle-line"></i> เพิ่มเป้าหมายใหม่
+                        </button>
                     </div>
                 </div>
-                
-                <button class="btn btn-primary" onclick="openTargetModal()" style="height: 42px; padding: 0 24px; font-weight: 600; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); border-radius: 8px;">
-                    <span style="font-size: 16px; margin-right: 6px;">➕</span> เพิ่มเป้าหมายใหม่
-                </button>
-            </div>
-            
-            <!-- Bottom Row: Filters and Toggles -->
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 16px; flex-wrap: wrap;">
-                
-                <!-- Toggle Switches -->
-                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <label class="check-pill" title="บันทึกภาพคนที่ไม่รู้จักลงฐานข้อมูลประวัติ">
-                        <input type="checkbox" id="save-unknown" onchange="toggleSaveUnknown()">
-                        บันทึกบุคคลทั่วไป
-                    </label>
-                    <label class="check-pill" title="แสดงเส้นตีกรอบเฉพาะเป้าหมายเท่านั้น">
-                        <input type="checkbox" id="show-only-targets" onchange="toggleShowOnlyTargets()">
-                        เฉพาะเป้าหมาย
-                    </label>
-                    <label class="check-pill" title="แสดงเส้นขอบเขตพื้นที่หรือเส้นข้ามบนวิดีโอ">
-                        <input type="checkbox" id="show-detection-zone" checked onchange="toggleShowDetectionZone()">
-                        แสดงพื้นที่/เส้นข้าม
-                    </label>
-                    <label class="check-pill" title="เปิดใช้งานระบบอ่านป้ายทะเบียนรถยนต์ (LPR)">
-                        <input type="checkbox" id="enable-lpr" onchange="toggleLPR()">
-                        อ่านป้ายทะเบียน (LPR)
-                    </label>
-                </div>
-        
-                <!-- Right Side settings -->
-                <div style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+
+                <!-- Detection thresholds -->
+                <div class="controls-settings-row controls-threshold-row" role="group" aria-labelledby="threshold-controls-label">
+                    <div class="controls-row-label" id="threshold-controls-label">
+                        <i class="ri-equalizer-2-line"></i>
+                        <span>เกณฑ์ความแม่นยำ</span>
+                    </div>
+                    <div class="controls-threshold-list">
                     <div class="field" id="yolo-search-container" style="display: none; margin: 0;">
                         <div style="display: flex; gap: 5px; align-items: center;">
-                            <label for="yolo-search" style="margin: 0; white-space: nowrap;" title="พิมพ์สิ่งที่ต้องการค้นหา เช่น หมา, กระเป๋า, คนใส่แว่น (YOLO-World)">🔍 ค้นหา (World):</label>
+                            <label for="yolo-search" style="margin: 0; white-space: nowrap;" title="พิมพ์สิ่งที่ต้องการค้นหา เช่น หมา, กระเป๋า, คนใส่แว่น (YOLO-World)"><i class="ri-search-2-line"></i> ค้นหา (World):</label>
                             <input type="text" id="yolo-search" placeholder="เช่น หมา, แมว" style="width: 120px; height: 32px;">
                             <button class="btn btn-primary" onclick="setCustomSearch()" style="padding: 0 12px; height: 32px; font-size: 13px;">ตกลง</button>
                         </div>
                     </div>
-                    
+
                     <div class="field" style="margin: 0; display: flex; flex-direction: row; align-items: center; gap: 12px;">
-                        <label for="min-confidence" style="margin: 0; white-space: nowrap;" title="ความมั่นใจขั้นต่ำที่ AI ตรวจจับ 'วัตถุ' (คน/รถ) — ไม่เกี่ยวกับความเหมือนใบหน้า">🎯 ตรวจจับวัตถุ (<span id="conf-val">50</span>%)</label>
+                        <label for="min-confidence" style="margin: 0; white-space: nowrap;" title="ความมั่นใจขั้นต่ำที่ AI ตรวจจับ 'วัตถุ' (คน/รถ) — ไม่เกี่ยวกับความเหมือนใบหน้า"><i class="ri-scan-2-line"></i> ตรวจจับวัตถุ (<span id="conf-val">50</span>%)</label>
                         <input type="range" id="min-confidence" min="10" max="99" value="50" onchange="updateMinConfidence()" oninput="document.getElementById('conf-val').innerText = this.value" style="width: 130px; margin: 0;">
                     </div>
 
                     <div class="field" style="margin: 0; display: flex; flex-direction: row; align-items: center; gap: 12px;">
-                        <label for="face-threshold" style="margin: 0; white-space: nowrap;" title="ความเหมือนใบหน้าขั้นต่ำที่จะยืนยันว่าเป็นเป้าหมาย — ยิ่งสูงยิ่งเข้ม (false ลดลง)">🧑 ความเหมือนใบหน้า (<span id="face-threshold-val">55</span>%)</label>
+                        <label for="face-threshold" style="margin: 0; white-space: nowrap;" title="ความเหมือนใบหน้าขั้นต่ำที่จะยืนยันว่าเป็นเป้าหมาย — ยิ่งสูงยิ่งเข้ม (false ลดลง)"><i class="ri-user-smile-line"></i> ความเหมือนใบหน้า (<span id="face-threshold-val">55</span>%)</label>
                         <input type="range" id="face-threshold" min="30" max="99" value="55" onchange="updateFaceThreshold()" oninput="document.getElementById('face-threshold-val').innerText = this.value" style="width: 130px; margin: 0;">
                     </div>
 
                     <div class="field" style="margin: 0; display: flex; flex-direction: row; align-items: center; gap: 12px;">
-                        <label for="vehicle-threshold" style="margin: 0; white-space: nowrap;" title="ความเหมือนของรถ 'เฉพาะคัน' ที่จับจากรูป (โมเดล VeRi) — ยิ่งสูงยิ่งเข้ม">🚗 ความเหมือนรถ (<span id="vehicle-threshold-val">80</span>%)</label>
+                        <label for="vehicle-threshold" style="margin: 0; white-space: nowrap;" title="ความเหมือนของรถ 'เฉพาะคัน' ที่จับจากรูป (โมเดล VeRi) — ยิ่งสูงยิ่งเข้ม"><i class="ri-car-line"></i> ความเหมือนรถ (<span id="vehicle-threshold-val">80</span>%)</label>
                         <input type="range" id="vehicle-threshold" min="50" max="99" value="80" onchange="updateVehicleThreshold()" oninput="document.getElementById('vehicle-threshold-val').innerText = this.value" style="width: 130px; margin: 0;">
+                    </div>
                     </div>
                 </div>
             </div>
@@ -202,14 +353,13 @@
             <!-- Main Content: CCTV Stream -->
             <section class="glass-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                    <h2 style="margin: 0;">CCTV AI (Target Recognition)</h2>
-                    <span id="active-camera-title-badge" style="font-size: 0.85rem; font-weight: 600; color: var(--primary); background: var(--primary-soft); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(37, 99, 235, 0.2);">กล้องหลัก: กำลังเชื่อมต่อ...</span>
+                    <h2 style="margin: 0;">ภาพกล้องและการตรวจจับ</h2>
                 </div>
 
                 <!-- Multi-Camera Grid View Switcher & Global Action Toolbar -->
                 <div class="cctv-grid-toolbar">
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">🖥️ มุมมอง (View Mode):</span>
+                        <span class="cctv-toolbar-label"><i class="ri-layout-grid-line"></i> มุมมอง (View Mode):</span>
                         <div class="grid-mode-selector">
                             <button type="button" class="btn-grid-mode active" id="btn-grid-1x1" onclick="setGridMode('1x1')" title="มุมมองกล้องเดี่ยว (Single 1x1)">1x1</button>
                             <button type="button" class="btn-grid-mode" id="btn-grid-1x2" onclick="setGridMode('1x2')" title="มุมมอง 2 กล้อง (Split 1x2)">1x2</button>
@@ -218,10 +368,19 @@
                             <button type="button" class="btn-grid-mode" id="btn-grid-auto" onclick="setGridMode('auto')" title="มุมมองอัตโนมัติ (Auto Grid)">Auto</button>
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                        <button type="button" class="btn btn-sm" onclick="playAllCameras()" style="padding: 4px 10px; font-size: 0.8rem; background: rgba(20,163,127,0.15); color: var(--success); border: 1px solid rgba(20,163,127,0.3); border-radius: 6px;" title="เริ่มประมวลผลทุกกล้องพร้อมกัน">▶️ เล่นทุกกล้อง</button>
-                        <button type="button" class="btn btn-sm" onclick="pauseAllCameras()" style="padding: 4px 10px; font-size: 0.8rem; background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px;" title="พักประมวลผลทุกกล้อง">⏸️ พักทุกกล้อง</button>
-                        <button type="button" class="btn btn-sm" onclick="stopAllCameras()" style="padding: 4px 10px; font-size: 0.8rem; background: rgba(229,72,77,0.15); color: var(--danger); border: 1px solid rgba(229,72,77,0.3); border-radius: 6px;" title="หยุดประมวลผลทุกกล้อง">🛑 หยุดทุกกล้อง</button>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" class="btn-bulk-cam btn-bulk-play" onclick="playAllCameras()" title="เริ่มตรวจจับทุกกล้องพร้อมกัน">
+                            <i class="ri-play-fill"></i>
+                            <span>เริ่มตรวจจับทุกกล้อง</span>
+                        </button>
+                        <button type="button" class="btn-bulk-cam btn-bulk-pause" onclick="pauseAllCameras()" title="พักการตรวจจับทุกกล้อง">
+                            <i class="ri-pause-fill"></i>
+                            <span>พักทุกกล้อง</span>
+                        </button>
+                        <button type="button" class="btn-bulk-cam btn-bulk-stop" onclick="stopAllCameras()" title="หยุดการตรวจจับทุกกล้อง">
+                            <i class="ri-stop-fill"></i>
+                            <span>หยุดทุกกล้อง</span>
+                        </button>
                     </div>
                 </div>
 
@@ -229,21 +388,40 @@
                 <div id="multi-camera-wall" class="cctv-wall-grid grid-2x2" style="display: none; margin-bottom: 16px;"></div>
 
                 <div id="video-container" style="position: relative; background: var(--surface); border-radius: var(--radius-sm); overflow: hidden;">
+                    <div class="cctv-card-header main-source-header">
+                        <div class="cctv-slot-left">
+                            <span class="slot-num-badge">ช่อง 1</span>
+                            <select id="camera-select" class="slot-cam-select main-source-select" onchange="changeCamera()" title="เลือกกล้อง/วิดีโอสำหรับจอนี้" aria-label="เลือกกล้องหรือแหล่งวิดีโอสำหรับช่อง 1">
+                                <option value="">กำลังโหลดกล้อง...</option>
+                            </select>
+                        </div>
+                        <div class="cctv-slot-right main-source-actions">
+                            <div class="slot-skip-box" id="frame-skip-container" title="ตั้งค่าข้ามเฟรม AI สำหรับช่องนี้">
+                                <span class="slot-skip-label"><i class="ri-skip-forward-line"></i> ข้าม:</span>
+                                <div class="slot-skip-stepper">
+                                    <button type="button" class="btn-skip-step" onclick="stepMainFrameSkip(-1)" title="ลดการข้ามเฟรม" aria-label="ลดการข้ามเฟรม">−</button>
+                                    <input type="number" id="frame-skip" min="0" max="30" value="0" class="slot-skip-input" onchange="setFrameSkip()" title="ระบุจำนวนเฟรม AI ที่ต้องการข้าม (0 = รันทุกเฟรม)" aria-label="จำนวนเฟรมที่ข้าม">
+                                    <button type="button" class="btn-skip-step" onclick="stepMainFrameSkip(1)" title="เพิ่มการข้ามเฟรม" aria-label="เพิ่มการข้ามเฟรม">+</button>
+                                </div>
+                            </div>
+                            <span id="active-camera-title-badge" class="cctv-cam-badge stopped">🔴 กำลังเชื่อมต่อ...</span>
+                        </div>
+                    </div>
                     <div class="plot-box">
                         <img id="video-feed" src="http://localhost:8081/video_feed" alt="รอภาพจากเซิร์ฟเวอร์..." style="min-height: 300px; display: none; width: 100%;">
                         <!-- Video file preview (shown before starting) -->
                         <div id="video-preview-wrap" style="display: none; position: relative; width: 100%; background: #0f172a;">
                             <img id="video-preview" alt="ตัวอย่างวิดีโอ" style="display: block; width: 100%; min-height: 300px; object-fit: contain; background: #0f172a;">
                             <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 16px; display: flex; align-items: center; gap: 10px; background: linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0)); color: #e2e8f0;">
-                                <span style="font-size: 1.1rem;">🎬</span>
-                                <span id="video-preview-caption" style="font-size: 0.9rem; font-weight: 500;">ตัวอย่างวิดีโอ — กดปุ่มเริ่ม ▶️ เพื่อประมวลผล</span>
+                                <span style="font-size: 1.1rem; color: #38bdf8;"><i class="ri-movie-line"></i></span>
+                                <span id="video-preview-caption" style="font-size: 0.9rem; font-weight: 500;">ตัวอย่างวิดีโอ — กดปุ่มสแกนตรวจจับเพื่อเริ่มทำงาน</span>
                             </div>
                         </div>
                         <!-- CCTV Mockup Placeholder -->
                         <div id="video-mockup" style="width: 100%; min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle, #1e293b 0%, #0f172a 100%); color: #64748b; padding: 40px; text-align: center; border-radius: var(--radius-sm);">
-                            <div style="font-size: 5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(99,102,241,0.2)); animation: pulse 2s infinite;">📹</div>
-                            <h3 style="font-family: var(--font-head); color: #e2e8f0; font-size: 1.3rem; margin-bottom: 10px;">CCTV AI Target Recognition</h3>
-                            <p style="font-size: 0.95rem; max-width: 400px; line-height: 1.5; color: #94a3b8; margin-bottom: 20px;">โปรดเลือกกล้อง / แหล่งข้อมูลวิดีโอจากด้านบน และกดปุ่มเริ่มทำงานเพื่อดึงสัญญาณภาพสด</p>
+                            <div style="font-size: 4.5rem; margin-bottom: 20px; color: #818cf8; filter: drop-shadow(0 0 16px rgba(99,102,241,0.35)); animation: pulse 2s infinite;"><i class="ri-cctv-line"></i></div>
+                            <h3 style="font-family: var(--font-head); color: #e2e8f0; font-size: 1.3rem; margin-bottom: 10px;">เลือกกล้องเพื่อเริ่มตรวจจับ</h3>
+                            <p style="font-size: 0.95rem; max-width: 400px; line-height: 1.5; color: #94a3b8; margin-bottom: 20px;">โปรดเลือกกล้อง / แหล่งข้อมูลวิดีโอจากหัวจอนี้ และกดปุ่มเริ่มทำงานเพื่อดึงสัญญาณภาพสด</p>
                             <div style="display: flex; gap: 8px; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
                                 <span id="mockup-indicator" style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block;"></span>
                                 <span id="mockup-text" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8;">Offline / Idle</span>
@@ -252,12 +430,12 @@
                     </div>
 
                     <div class="media-controls">
-                        <button id="btn-play" onclick="playStream()" class="btn-media" title="เริ่ม (Play)">▶️</button>
-                        <button id="btn-pause" onclick="pauseStream()" class="btn-media" title="พัก (Pause)">⏸️</button>
-                        <button id="btn-stop" onclick="stopProcessing()" class="btn-media" title="หยุด (Stop)">🛑</button>
-                        <button id="btn-fullscreen" onclick="toggleFullScreen()" class="btn-media" title="เต็มจอ (Fullscreen)" style="margin-left: 10px;">📺</button>
-                        <button id="btn-crop-screen" onclick="openScreenCropModal()" class="btn-media" title="กำหนดพื้นที่หน้าจอ" style="display: none; margin-left: 10px;">✂️</button>
-                        <button id="btn-set-zone" onclick="openZoneModal()" class="btn-media" title="กำหนดเขตตรวจจับ (Detection Zone)" style="margin-left: 10px;">📐</button>
+                        <button id="btn-play" onclick="playStream()" class="btn-media" title="เริ่มตรวจจับ (Start / Play)"><i class="ri-play-fill"></i></button>
+                        <button id="btn-pause" onclick="pauseStream()" class="btn-media" title="พักการตรวจจับ (Pause Detection)"><i class="ri-pause-fill"></i></button>
+                        <button id="btn-stop" onclick="stopProcessing()" class="btn-media" title="หยุดการตรวจจับ (Stop Detection)"><i class="ri-stop-fill"></i></button>
+                        <button id="btn-fullscreen" onclick="toggleFullScreen()" class="btn-media" title="เต็มจอ (Fullscreen)" style="margin-left: 10px;"><i class="ri-fullscreen-line"></i></button>
+                        <button id="btn-crop-screen" onclick="openScreenCropModal()" class="btn-media" title="กำหนดพื้นที่หน้าจอ" style="display: none; margin-left: 10px;"><i class="ri-crop-line"></i></button>
+                        <button id="btn-set-zone" onclick="openZoneModal()" class="btn-media" title="กำหนดเขตตรวจจับ (Detection Zone)" style="margin-left: 10px;"><i class="ri-shape-line"></i></button>
                     </div>
 
                     <!-- Video file playback timeline (shown only for video-file sources) -->
@@ -275,33 +453,33 @@
                 </div>
 
                 <div class="card-inset">
-                    <h3 style="margin-bottom: 12px; font-size: 1rem;">🖥️ System Dashboard</h3>
+                    <h3 style="margin-bottom: 12px; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px;"><i class="ri-dashboard-3-line" style="color: var(--primary);"></i> สถานะการประมวลผล</h3>
                     <div class="stats-grid">
                         <div class="stat-tile">
-                            <div class="stat-label">FPS</div>
+                            <div id="stat-label-fps" class="stat-label">FPS</div>
                             <div id="stat-fps" class="stat-value">0</div>
                         </div>
                         <div class="stat-tile">
-                            <div class="stat-label">ฐานข้อมูลเป้าหมาย</div>
+                            <div id="stat-label-db" class="stat-label">ฐานข้อมูลเป้าหมาย</div>
                             <div id="stat-db" class="stat-value accent-blue">0 คน</div>
                         </div>
                         <div class="stat-tile">
-                            <div class="stat-label">บุคคลทั่วไป</div>
+                            <div id="stat-label-unknown" class="stat-label">บุคคลทั่วไป</div>
                             <div id="stat-unknown" class="stat-value accent-orange">0 คน</div>
                         </div>
                         <div class="stat-tile" title="ข้ามเฟรมปัจจุบัน">
-                            <div class="stat-label">ข้ามเฟรมปัจจุบัน</div>
+                            <div id="stat-label-skip" class="stat-label">ข้ามเฟรมปัจจุบัน</div>
                             <div id="stat-skip" class="stat-value accent-blue">0 เฟรม</div>
                         </div>
                         <div class="stat-tile" title="กล้องปัจจุบัน">
-                            <div class="stat-label">กล้องปัจจุบัน</div>
+                            <div id="stat-label-cam" class="stat-label">กล้องปัจจุบัน</div>
                             <div id="stat-cam" class="stat-value accent-green">กำลังโหลด...</div>
                         </div>
                     </div>
                 </div>
 
                 <div class="card-inset" style="margin-top: 16px;">
-                    <h3 style="margin-bottom: 12px; font-size: 1rem;">📊 สถิติเป้าหมายที่พบ (กล้องปัจจุบัน)</h3>
+                    <h3 style="margin-bottom: 12px; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px;"><i class="ri-bar-chart-2-line" style="color: #38bdf8;"></i> <span id="target-stats-title-text">สถิติเป้าหมายที่พบ (กล้องปัจจุบัน)</span></h3>
                     <div id="target-stats-list" class="target-stats-grid">
                         <div class="muted">กำลังโหลดข้อมูล...</div>
                     </div>
@@ -309,17 +487,31 @@
             </section>
 
             <!-- Sidebar: Hit List -->
-            <div style="position: relative; height: 100%;">
-                <section class="glass-card hitlist-card" style="position: absolute; top: 0; bottom: 0; left: 0; right: 0; overflow: hidden; display: flex; flex-direction: column;">
-                    <h2>🚨 เป้าหมายที่พบ (Hit List)</h2>
-                    <p>คลิกที่รูปเพื่อขยาย</p>
-                    <div id="alerts-output" class="scroll-area" style="display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px;">
-                        <div class="empty-state">ยังไม่พบเป้าหมาย</div>
+            <div class="hitlist-sidebar-wrap">
+                <section class="glass-card hitlist-card">
+                    <div class="hitlist-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <h2 style="margin: 0; display: flex; align-items: center; font-size: 1.15rem;"><i class="ri-alarm-warning-fill" style="color: #f43f5e; margin-right: 6px;"></i>เป้าหมายที่พบ (Hit List)</h2>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="openLiveHitMatrixModal()" title="ขยายดูเป้าหมายแบบเรียลไทม์เต็มจอ (Live Hit Matrix)" style="padding: 3px 8px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,0.04);">
+                                <i class="ri-fullscreen-line" style="color: var(--primary);"></i> เต็มจอ
+                            </button>
+                            <a href="live_hits.html" target="_blank" class="btn btn-ghost btn-sm" title="เปิดหน้าต่างมอนิเตอร์สดจอแยก (Live Monitor Wall)" style="padding: 3px 8px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,0.04); text-decoration: none; color: inherit;">
+                                <i class="ri-external-link-line" style="color: #38bdf8;"></i> จอแยก ↗
+                            </a>
+                        </div>
+                    </div>
+                    <p id="hitlist-camera-label" style="margin-bottom: 8px; font-size: 0.8rem; color: var(--text-muted);">คลิกที่รูปเพื่อขยาย</p>
+                    <div id="alerts-output" class="scroll-area hitlist-scroll-area" aria-busy="false">
+                        <div id="hit-list-items" class="hit-list-items">
+                            <div class="empty-state">ยังไม่พบเป้าหมาย</div>
+                        </div>
+                        <div id="hit-list-sentinel" class="hit-list-sentinel"></div>
                     </div>
                 </section>
             </div>
         </div>
-    </main>
+
+</main>
 
             </div>
     </div>
@@ -329,10 +521,10 @@
         <div class="modal-content glass-card" style="width: 400px; max-width: 100%;">
             <span class="close" onclick="closeTargetModal()">&times;</span>
             <div style="display: flex; gap: 10px; margin-bottom: 16px; margin-top: 24px;">
-                <button class="btn btn-primary" id="tab-person" onclick="switchModalTab('person')" style="flex: 1;">👤 เพิ่มบุคคล</button>
-                <button class="btn btn-ghost" id="tab-vehicle" onclick="switchModalTab('vehicle')" style="flex: 1;">🚗 เพิ่มยานพาหนะ</button>
+                <button class="btn btn-primary" id="tab-person" onclick="switchModalTab('person')" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"><i class="ri-user-add-line"></i> เพิ่มบุคคล</button>
+                <button class="btn btn-ghost" id="tab-vehicle" onclick="switchModalTab('vehicle')" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"><i class="ri-car-line"></i> เพิ่มยานพาหนะ</button>
             </div>
-            
+
             <form id="addTargetForm" onsubmit="submitTarget(event)">
                 <div class="form-group">
                     <label>ชื่อบุคคล (ภาษาอังกฤษ)</label>
@@ -364,13 +556,50 @@
         </div>
     </div>
 
+    <!-- Modal: Real-Time Live Hit Matrix -->
+    <div id="liveHitMatrixModal" class="modal" onclick="if(event.target === this) closeLiveHitMatrixModal()">
+        <div class="modal-content glass-card live-matrix-modal-content">
+            <div class="live-matrix-header">
+                <div class="live-matrix-title-group">
+                    <h2><i class="ri-radar-fill" style="color: #38bdf8;"></i> ตรวจจับสดแบบเต็มจอ (Live Hit Matrix)</h2>
+                    <span class="live-pulse-badge"><span class="pulse-dot"></span> LIVE REAL-TIME</span>
+                    <span id="live-matrix-count" class="live-matrix-count">0 รายการ</span>
+                </div>
+                <div class="live-matrix-controls">
+                    <div class="live-matrix-filter-group">
+                        <button type="button" class="matrix-filter-btn active" data-filter="all" onclick="setMatrixFilter('all')">ทั้งหมด</button>
+                        <button type="button" class="matrix-filter-btn" data-filter="lpr" onclick="setMatrixFilter('lpr')"><i class="ri-font-size-2"></i> ทะเบียน</button>
+                        <button type="button" class="matrix-filter-btn" data-filter="target" onclick="setMatrixFilter('target')"><i class="ri-focus-3-fill"></i> เป้าหมาย</button>
+                        <button type="button" class="matrix-filter-btn" data-filter="person" onclick="setMatrixFilter('person')"><i class="ri-user-3-fill"></i> บุคคล</button>
+                        <button type="button" class="matrix-filter-btn" data-filter="zone" onclick="setMatrixFilter('zone')"><i class="ri-map-pin-user-fill"></i> Zone/Line</button>
+                    </div>
+                    <div class="live-matrix-grid-switch">
+                        <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 4px; margin-left: 4px;">คอลัมน์:</span>
+                        <button type="button" class="matrix-col-btn" data-cols="2" onclick="setMatrixColumns(2)">2</button>
+                        <button type="button" class="matrix-col-btn active" data-cols="3" onclick="setMatrixColumns(3)">3</button>
+                        <button type="button" class="matrix-col-btn" data-cols="4" onclick="setMatrixColumns(4)">4</button>
+                    </div>
+                    <a href="live_hits.html" target="_blank" class="matrix-filter-btn" title="เปิดในแท็บใหม่ / จอแยก (Live Monitor Wall)" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 6px 12px;">
+                        <i class="ri-external-link-line"></i> จอแยก ↗
+                    </a>
+                    <span class="close-modal" onclick="closeLiveHitMatrixModal()" title="ปิด" style="position: static; margin-left: 4px;">&times;</span>
+                </div>
+            </div>
+            <div id="live-matrix-body" class="live-matrix-body">
+                <div id="live-matrix-grid" class="live-matrix-grid cols-3">
+                    <div class="empty-state" style="grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-muted);">กำลังรอรับข้อมูลเหตุการณ์สด...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Large Image -->
     <div id="imageModal" class="modal" onclick="closeImageModal()" style="cursor: zoom-out;">
         <span class="close" style="position: absolute; top: 20px; right: 32px; font-size: 38px; color: #e2e8f0;">&times;</span>
         <button id="btn-prev-img" onclick="prevImage(event)" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10094;</button>
         <button id="btn-next-img" onclick="nextImage(event)" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font-size: 48px; background: rgba(0,0,0,0.5); border: none; color: white; cursor: pointer; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; z-index: 10; transition: background 0.3s;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">&#10095;</button>
         <div style="display: flex; flex-direction: column; align-items: center; max-width: 95%; max-height: 95%; position: relative;" onclick="event.stopPropagation()">
-            
+
             <div id="modal-comparison-container" style="display: flex; gap: 20px; justify-content: center; align-items: center; margin-bottom: 12px; flex-wrap: nowrap; max-width: 100%;">
                 <!-- Reference Target -->
                 <div id="modal-ref-box" style="display: none; flex-direction: column; align-items: center;">
@@ -394,7 +623,7 @@
 
             <div id="modal-info-text" style="color: #ffffff; font-size: 1.1rem; font-weight: bold; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); text-align: center;"></div>
 
-            <div style="margin-top: 16px; display: flex; gap: 10px; justify-content: center;">
+            <div class="modal-actions-bar">
                 <button id="btn-crop-img" onclick="switchModalImg('crop')" class="btn btn-primary">🔍 ซูมเป้าหมาย</button>
                 <button id="btn-full-img" onclick="switchModalImg('full')" class="btn btn-ghost">🖼️ ภาพมุมกว้าง</button>
                 <button id="btn-edit-color" onclick="editVehicleColor()" class="btn btn-ghost" style="display: none;">🎨 แก้ไขสีรถ</button>
@@ -451,16 +680,35 @@
 
     <script>
         const API_URL = 'http://localhost:8081';
-        const nativeFetch = window.fetch.bind(window);
-        window.fetch = (resource, options = {}) => {
-            const apiKey = localStorage.getItem('cctv_api_key') || '';
-            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
-                const headers = new Headers(options.headers || {});
-                headers.set('X-API-Key', apiKey);
-                options = { ...options, headers };
-            }
-            return nativeFetch(resource, options);
-        };
+        let videoFeedReconnectTimer = null;
+        let videoFeedReconnectDelay = 1000;
+
+        function scheduleVideoFeedReconnect() {
+            const feed = document.getElementById('video-feed');
+            if (!feed || feed.style.display === 'none' || videoFeedReconnectTimer) return;
+            const retryDelay = videoFeedReconnectDelay;
+            videoFeedReconnectDelay = Math.min(videoFeedReconnectDelay * 2, 10000);
+            videoFeedReconnectTimer = window.setTimeout(() => {
+                videoFeedReconnectTimer = null;
+                if (feed.style.display !== 'none') {
+                    feed.src = `${API_URL}/video_feed?t=${Date.now()}`;
+                }
+            }, retryDelay);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const feed = document.getElementById('video-feed');
+            if (!feed) return;
+            feed.addEventListener('error', scheduleVideoFeedReconnect);
+            feed.addEventListener('load', () => {
+                videoFeedReconnectDelay = 1000;
+                if (videoFeedReconnectTimer) {
+                    clearTimeout(videoFeedReconnectTimer);
+                    videoFeedReconnectTimer = null;
+                }
+            });
+        }, { once: true });
+
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -478,13 +726,157 @@
             return '';
         }
 
+        function getSavedGridMode() {
+            try {
+                return localStorage.getItem('cctv_grid_mode') || '1x1';
+            } catch (e) {
+                return '1x1';
+            }
+        }
+
+        function saveGridMode(mode) {
+            try {
+                localStorage.setItem('cctv_grid_mode', mode);
+            } catch (e) {}
+        }
+
+        function getSavedGridSlots(mode) {
+            try {
+                const raw = localStorage.getItem(`cctv_grid_slots_${mode}`);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) return parsed;
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function saveGridSlots(mode, slots) {
+            try {
+                localStorage.setItem(`cctv_grid_slots_${mode}`, JSON.stringify(slots));
+            } catch (e) {}
+        }
+
         // Multi-Camera Grid State
-        let currentGridMode = '1x1';
+        let currentGridMode = getSavedGridMode();
         let cachedCameras = [];
         let activeCameraId = '';
+        let gridSlotCameras = [];
 
-        async function setGridMode(mode) {
+        // Finite requests keep large walls below browser connection limits.
+        // Rotate fairly across every assigned tile, including tiles below the fold.
+        let wallPreviewSession = null;
+        function stopWallPreviews() {
+            const session = wallPreviewSession;
+            wallPreviewSession = null;
+            if (!session) return;
+            clearTimeout(session.timer);
+            session.controllers.forEach(controller => controller.abort());
+            session.urls.forEach(url => URL.revokeObjectURL(url));
+            session.streams?.forEach(image => {
+                image.onerror = null;
+                image.removeAttribute('src');
+                image.removeAttribute('crossorigin');
+            });
+        }
+        function startWallPreviews(forcePolling = false) {
+            stopWallPreviews();
+            if (currentGridMode === '1x1' || document.hidden) return;
+            const images = [...document.querySelectorAll('.cctv-cam-img[data-camera-id]')];
+            if (!images.length) return;
+            const session = {controllers: new Set(), urls: new Map(), timer: null, cursor: 0};
+            wallPreviewSession = session;
+            // Four streams per host leave capacity for controls and other requests.
+            // CORS images retain the backend's loopback-only and origin protections.
+            const hosts = ['127.0.0.1', 'localhost', 'cam1.localhost', 'cam2.localhost'];
+            const localApi = new URL(API_URL);
+            const canShard = ['localhost', '127.0.0.1'].includes(localApi.hostname);
+            if (!forcePolling && canShard && images.length <= 16) {
+                session.streams = images;
+                images.forEach((image, index) => {
+                    const url = new URL('/video_feed/' + encodeURIComponent(image.dataset.cameraId), API_URL);
+                    url.hostname = hosts[index % hosts.length];
+                    image.crossOrigin = 'anonymous';
+                    image.onerror = () => {
+                        // DNS or streaming failure: retry the whole wall with finite requests.
+                        if (wallPreviewSession === session) startWallPreviews(true);
+                    };
+                    image.src = url.href;
+                });
+                return;
+            }
+            async function refresh(image) {
+                const controller = new AbortController();
+                session.controllers.add(controller);
+                const timeout = setTimeout(() => controller.abort(), 4000);
+                try {
+                    const response = await fetch(
+                        API_URL + '/preview_frame/' + encodeURIComponent(image.dataset.cameraId),
+                        {signal: controller.signal, cache: 'no-store', priority: 'low'});
+                    if (response.status === 204) return;
+                    if (!response.ok) throw new Error('Preview unavailable');
+                    const blob = await response.blob();
+                    if (wallPreviewSession !== session || !image.isConnected) return;
+                    const previous = session.urls.get(image);
+                    const url = URL.createObjectURL(blob);
+                    session.urls.set(image, url);
+                    image.src = url;
+                    image.title = '';
+                    if (previous) URL.revokeObjectURL(previous);
+                } catch (error) {
+                    if (wallPreviewSession === session) image.title = 'กำลังลองรับภาพใหม่';
+                } finally {
+                    clearTimeout(timeout);
+                    session.controllers.delete(controller);
+                }
+            }
+            async function pump() {
+                if (wallPreviewSession !== session) return;
+                const batch = [];
+                for (let i = 0; i < Math.min(3, images.length); i++) {
+                    batch.push(refresh(images[session.cursor]));
+                    session.cursor = (session.cursor + 1) % images.length;
+                }
+                await Promise.allSettled(batch);
+                if (wallPreviewSession === session)
+                    session.timer = setTimeout(pump, 150);
+            }
+            pump();
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopWallPreviews();
+            else startWallPreviews();
+        });
+        window.addEventListener('pagehide', stopWallPreviews);
+
+        function getSlotCountForMode(mode) {
+            if (mode === '1x2') return 2;
+            if (mode === '2x2') return 4;
+            if (mode === '3x3') return 9;
+            return (cachedCameras && cachedCameras.length > 0) ? cachedCameras.length : 4;
+        }
+
+        async function setGridMode(mode, saveState = true) {
+            stopWallPreviews();
+            const previousMode = currentGridMode;
             currentGridMode = mode;
+            if (mode !== previousMode && mode !== '1x1') activeCameraId = '';
+            if (saveState) {
+                saveGridMode(mode);
+            }
+
+            const slotCount = getSlotCountForMode(mode);
+            const savedSlots = getSavedGridSlots(mode);
+
+            if (savedSlots && savedSlots.length > 0) {
+                gridSlotCameras = [...savedSlots];
+                while (gridSlotCameras.length < slotCount) gridSlotCameras.push('');
+                if (gridSlotCameras.length > slotCount) gridSlotCameras = gridSlotCameras.slice(0, slotCount);
+            } else if (mode !== '1x1' && (mode !== previousMode || !gridSlotCameras || gridSlotCameras.length !== slotCount)) {
+                // A newly selected layout starts empty if no saved slots exist.
+                gridSlotCameras = Array(slotCount).fill('');
+            }
+
             document.querySelectorAll('.btn-grid-mode').forEach(btn => btn.classList.remove('active'));
             const activeBtn = document.getElementById(`btn-grid-${mode}`);
             if (activeBtn) activeBtn.classList.add('active');
@@ -495,10 +887,12 @@
             if (mode === '1x1') {
                 if (wall) {
                     wall.style.display = 'none';
+                    wall.replaceChildren();
                 }
                 if (videoContainer) videoContainer.style.display = 'block';
             } else {
                 if (videoContainer) videoContainer.style.display = 'none';
+                document.getElementById('video-feed')?.removeAttribute('src');
                 if (wall) {
                     wall.className = `cctv-wall-grid grid-${mode}`;
                     wall.style.display = 'grid';
@@ -519,71 +913,44 @@
             fetchSystemStatus();
         }
 
-        let gridSlotCameras = [];
-
-        function getSlotCountForMode(mode) {
-            if (mode === '1x2') return 2;
-            if (mode === '2x2') return 4;
-            if (mode === '3x3') return 9;
-            return (cachedCameras && cachedCameras.length > 0) ? cachedCameras.length : 4;
-        }
-
-        function loadSlotAssignments() {
-            try {
-                const saved = localStorage.getItem('cctv_grid_slots_' + currentGridMode);
-                if (saved) {
-                    const parsed = JSON.parse(saved);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        return parsed;
-                    }
-                }
-            } catch(e) {}
-            return [];
-        }
-
-        function saveSlotAssignments() {
-            try {
-                localStorage.setItem('cctv_grid_slots_' + currentGridMode, JSON.stringify(gridSlotCameras));
-            } catch(e) {}
-        }
-
         function renderMultiCameraWall() {
             const wall = document.getElementById('multi-camera-wall');
             if (!wall || currentGridMode === '1x1' || !cachedCameras || cachedCameras.length === 0) return;
 
             const slotCount = getSlotCountForMode(currentGridMode);
 
-            // Load or initialize slot assignments
+            // Maintain or restore saved slots for the current grid mode
             if (!gridSlotCameras || gridSlotCameras.length !== slotCount) {
-                const saved = loadSlotAssignments();
-                gridSlotCameras = [];
-                for (let i = 0; i < slotCount; i++) {
-                    if (saved[i] && cachedCameras.some(c => c.id === saved[i])) {
-                        gridSlotCameras.push(saved[i]);
-                    } else if (i < cachedCameras.length) {
-                        gridSlotCameras.push(cachedCameras[i].id);
-                    } else {
-                        gridSlotCameras.push(cachedCameras[i % cachedCameras.length].id);
-                    }
+                const saved = getSavedGridSlots(currentGridMode);
+                if (saved && Array.isArray(saved)) {
+                    gridSlotCameras = [...saved];
+                    while (gridSlotCameras.length < slotCount) gridSlotCameras.push('');
+                    if (gridSlotCameras.length > slotCount) gridSlotCameras = gridSlotCameras.slice(0, slotCount);
+                } else if (!gridSlotCameras) {
+                    gridSlotCameras = Array(slotCount).fill('');
+                } else {
+                    while (gridSlotCameras.length < slotCount) gridSlotCameras.push('');
+                    if (gridSlotCameras.length > slotCount) gridSlotCameras = gridSlotCameras.slice(0, slotCount);
                 }
-                saveSlotAssignments();
             }
 
             let html = '';
             for (let i = 0; i < slotCount; i++) {
-                const camId = gridSlotCameras[i];
-                const cam = cachedCameras.find(c => c.id === camId) || cachedCameras[0];
-                const isActive = (cam.id === activeCameraId);
-                const isLive = cam.stream_state === 'playing';
-                const isPaused = cam.stream_state === 'paused';
-                const badgeClass = isLive ? 'live' : (isPaused ? 'paused' : 'stopped');
-                const badgeText = isLive ? `🟢 LIVE (${cam.fps || 0} FPS)` : (isPaused ? '⏸️ PAUSED' : '🔴 OFFLINE');
-                const isVideo = isVideoFileUrl(cam.url);
-                const skipVal = (cam.frame_skip !== undefined) ? cam.frame_skip : (cam.config?.frame_skip || 0);
+                const camId = gridSlotCameras[i] || '';
+                const cam = cachedCameras.find(c => c.id === camId) || null;
+                const isActive = Boolean(cam && cam.id === activeCameraId);
+                const isLive = Boolean(cam && cam.stream_state === 'playing');
+                const isPaused = Boolean(cam && cam.stream_state === 'paused');
+                const badgeClass = cam ? (isLive ? 'live' : (isPaused ? 'paused' : 'stopped')) : 'unassigned';
+                const badgeText = cam
+                    ? (isLive ? `🟢 LIVE (${cam.fps || 0} FPS)` : (isPaused ? '⏸️ PAUSED' : '🔴 OFFLINE'))
+                    : '⚪ รอเลือกแหล่งภาพ';
+                const isVideo = Boolean(cam && isVideoFileUrl(cam.url));
+                const skipVal = cam ? ((cam.frame_skip !== undefined) ? cam.frame_skip : (cam.config?.frame_skip || 0)) : 0;
 
-                let optionsHtml = '';
+                let optionsHtml = `<option value="" ${cam ? '' : 'selected'}>— เลือกแหล่งภาพ —</option>`;
                 cachedCameras.forEach(c => {
-                    const isSel = (c.id === cam.id) ? 'selected' : '';
+                    const isSel = (c.id === camId) ? 'selected' : '';
                     optionsHtml += `<option value="${escapeHTML(c.id)}" ${isSel}>${escapeHTML(c.name)}</option>`;
                 });
 
@@ -598,34 +965,42 @@
                 }
 
                 html += `
-                <div class="cctv-cam-card ${isActive ? 'active-cam' : ''}" id="cam-slot-card-${i}" data-slot-index="${i}" data-cam-id="${escapeHTML(cam.id)}">
+                <div class="cctv-cam-card ${isActive ? 'active-cam' : ''} ${cam ? '' : 'empty-cam'}" id="cam-slot-card-${i}" data-slot-index="${i}" data-cam-id="${cam ? escapeHTML(cam.id) : ''}" onclick="handleSlotCardClick(event, ${i})" style="cursor: pointer;">
                     <div class="cctv-card-header">
                         <div class="cctv-slot-left">
                             <span class="slot-num-badge">ช่อง ${i + 1}</span>
-                            <select class="slot-cam-select" onchange="changeSlotCamera(${i}, this.value)" title="เลือกกล้อง/วิดีโอสำหรับช่องนี้">
+                            <select class="slot-cam-select" onchange="changeSlotCamera(${i}, this.value)" title="เลือกกล้อง/วิดีโอสำหรับช่องนี้" aria-label="เลือกแหล่งภาพสำหรับช่อง ${i + 1}">
                                 ${optionsHtml}
                             </select>
                         </div>
                         <div class="cctv-slot-right">
-                            <div class="slot-skip-box" title="ตั้งค่าข้ามเฟรม AI สำหรับช่องนี้">
+                            ${cam ? `<div class="slot-skip-box" title="ตั้งค่าข้ามเฟรม AI สำหรับช่องนี้">
                                 <span class="slot-skip-label">⏩ ข้าม:</span>
-                                <input type="number" min="0" max="30" class="slot-skip-input" id="slot-skip-${i}" value="${Number(skipVal) || 0}" onchange="setSlotFrameSkip(this.closest('.cctv-cam-card').dataset.camId, this.value)" title="ระบุจำนวนเฟรม AI ที่ต้องการข้าม (0 = รันทุกเฟรม)">
-                            </div>
+                                <div class="slot-skip-stepper">
+                                    <button type="button" class="btn-skip-step" onclick="stepSlotFrameSkip(${i}, -1)" title="ลดการข้ามเฟรม">−</button>
+                                    <input type="number" min="0" max="30" class="slot-skip-input" id="slot-skip-${i}" value="${Number(skipVal) || 0}" onchange="setSlotFrameSkip(this.closest('.cctv-cam-card').dataset.camId, this.value)" title="ระบุจำนวนเฟรม AI ที่ต้องการข้าม (0 = รันทุกเฟรม)">
+                                    <button type="button" class="btn-skip-step" onclick="stepSlotFrameSkip(${i}, 1)" title="เพิ่มการข้ามเฟรม">+</button>
+                                </div>
+                            </div>` : ''}
                             <span class="cctv-cam-badge ${badgeClass}" id="slot-badge-${i}">${badgeText}</span>
                         </div>
                     </div>
-                    <div class="cctv-cam-video-wrap">
-                        <img class="cctv-cam-img" id="slot-img-${i}" src="${API_URL}/video_feed/${encodeURIComponent(cam.id)}" alt="${escapeHTML(cam.name)}" loading="lazy">
+                    ${cam ? `<div class="cctv-cam-video-wrap">
+                        <img class="cctv-cam-img" id="slot-img-${i}" data-camera-id="${escapeHTML(cam.id)}" alt="${escapeHTML(cam.name)}" loading="eager">
                         <div class="cctv-cam-actions">
-                            <button type="button" class="btn-cam-action" onclick="selectSlotAsMain(${i})" title="ขยายกล้องช่องนี้เป็นจอใหญ่ (1x1)">🔍 ขยายเดี่ยว</button>
-                            <button type="button" class="btn-cam-action" onclick="playCamera(this.closest('.cctv-cam-card').dataset.camId)" title="เริ่ม (Play)">▶️</button>
-                            <button type="button" class="btn-cam-action" onclick="pauseCamera(this.closest('.cctv-cam-card').dataset.camId)" title="พัก (Pause)">⏸️</button>
-                            <button type="button" class="btn-cam-action" onclick="stopCamera(this.closest('.cctv-cam-card').dataset.camId)" title="หยุด (Stop)">🛑</button>
+                            <button type="button" class="btn-cam-action" onclick="selectSlotAsMain(${i})" title="ขยายกล้องช่องนี้เป็นจอใหญ่ (1x1)"><i class="ri-fullscreen-line"></i> ขยายเดี่ยว</button>
+                            <button type="button" class="btn-cam-action" onclick="playCamera(this.closest('.cctv-cam-card').dataset.camId)" title="เริ่มตรวจจับ (Start / Play)"><i class="ri-play-fill"></i></button>
+                            <button type="button" class="btn-cam-action" onclick="pauseCamera(this.closest('.cctv-cam-card').dataset.camId)" title="พักตรวจจับ (Pause)"><i class="ri-pause-fill"></i></button>
+                            <button type="button" class="btn-cam-action" onclick="stopCamera(this.closest('.cctv-cam-card').dataset.camId)" title="หยุดตรวจจับ (Stop)"><i class="ri-stop-fill"></i></button>
                         </div>
-                    </div>
+                    </div>` : `<div class="cctv-cam-empty-state">
+                        <i class="ri-video-add-line" aria-hidden="true"></i>
+                        <strong>ยังไม่ได้เลือกแหล่งภาพ</strong>
+                        <span>เลือกกล้องหรือวิดีโอจากตัวเลือกด้านบนของช่องนี้</span>
+                    </div>`}
                     ${isVideo ? `
                     <div class="slot-video-timeline" id="slot-timeline-${i}">
-                        <span style="font-size: 0.75rem; color: #cbd5e1;">🎬</span>
+                        <span style="font-size: 0.85rem; color: #38bdf8; display: inline-flex; align-items: center;"><i class="ri-movie-line"></i></span>
                         <input type="range" class="slot-video-slider" id="slot-slider-${i}" min="0" max="1000" value="${Number(sliderVal) || 0}" oninput="seekSlotVideo(this.closest('.cctv-cam-card').dataset.camId, this.value)" title="เลื่อนแถบเวลาวิดีโอ">
                         <span class="slot-video-time" id="slot-time-${i}">${escapeHTML(timeStr)}</span>
                     </div>` : ''}
@@ -633,21 +1008,27 @@
                 `;
             }
 
+            stopWallPreviews();
             wall.innerHTML = html;
+            startWallPreviews();
         }
 
         async function changeSlotCamera(slotIndex, newCamId) {
-            gridSlotCameras[slotIndex] = newCamId;
-            saveSlotAssignments();
+            gridSlotCameras[slotIndex] = newCamId || '';
+            saveGridSlots(currentGridMode, gridSlotCameras);
 
             const cam = cachedCameras.find(c => c.id === newCamId);
+            if (!cam) {
+                renderMultiCameraWall();
+                return;
+            }
             const card = document.getElementById(`cam-slot-card-${slotIndex}`);
             const img = document.getElementById(`slot-img-${slotIndex}`);
             if (card && cam) {
                 card.dataset.camId = newCamId;
             }
             if (img && cam) {
-                img.src = `${API_URL}/video_feed/${newCamId}?t=${Date.now()}`;
+                img.dataset.cameraId = newCamId;
                 img.alt = cam.name;
             }
 
@@ -656,6 +1037,27 @@
             renderMultiCameraWall(); // Re-render to show/hide timeline if video
             showToast(`✅ สลับช่องที่ ${slotIndex + 1} เป็น ${cam ? cam.name : newCamId} เรียบร้อย`, "#14a37f");
             fetchSystemStatus();
+        }
+
+        function stepSlotFrameSkip(slotIndex, delta) {
+            const input = document.getElementById(`slot-skip-${slotIndex}`);
+            if (!input) return;
+            let val = (parseInt(input.value, 10) || 0) + delta;
+            val = Math.max(0, Math.min(30, val));
+            input.value = val;
+            const card = document.getElementById(`cam-slot-card-${slotIndex}`);
+            const camId = card ? card.dataset.camId : null;
+            if (camId) {
+                setSlotFrameSkip(camId, val);
+            }
+        }
+
+        function stepMainFrameSkip(delta) {
+            const input = document.getElementById('frame-skip');
+            if (!input) return;
+            const nextValue = Math.max(0, Math.min(30, (parseInt(input.value, 10) || 0) + delta));
+            input.value = nextValue;
+            setFrameSkip();
         }
 
         async function setSlotFrameSkip(camId, val) {
@@ -730,6 +1132,35 @@
             }
         }
 
+        function handleSlotCardClick(event, slotIndex) {
+            if (event.target.closest('button, select, input, a')) return;
+            const camId = gridSlotCameras[slotIndex];
+            if (!camId) return;
+            if (activeCameraId === camId) {
+                activeCameraId = '';
+            } else {
+                activeCameraId = camId;
+            }
+            updateMultiCameraWallStatus(cachedCameras);
+            updateHitListHeaderLabel();
+            fetchAlerts(true);
+        }
+
+        function updateHitListHeaderLabel() {
+            const labelEl = document.getElementById('hitlist-camera-label');
+            if (!labelEl) return;
+            if (activeCameraId) {
+                const cam = cachedCameras.find(c => c.id === activeCameraId);
+                const name = cam ? cam.name : activeCameraId;
+                labelEl.innerHTML = `<span style="display: inline-flex; align-items: center; gap: 4px; color: #38bdf8; font-weight: 600;"><i class="ri-focus-3-line"></i> กล้อง: ${escapeHTML(name)}</span> <span style="font-size: 0.72rem; color: var(--text-muted);">(คลิกกล้องเดิมเพื่อดูทุกกล้อง)</span>`;
+            } else if (currentGridMode !== '1x1') {
+                const count = getVisibleSlotCameraIds().length;
+                labelEl.innerHTML = `<span style="display: inline-flex; align-items: center; gap: 4px; color: #10b981; font-weight: 600;"><i class="ri-grid-fill"></i> แสดงทุกกล้อง (${count} จอ)</span> <span style="font-size: 0.72rem; color: var(--text-muted);">(คลิกที่กล้องเพื่อดูเฉพาะกล้องนั้น)</span>`;
+            } else {
+                labelEl.textContent = 'คลิกที่รูปเพื่อขยาย';
+            }
+        }
+
         function getVisibleSlotCameraIds() {
             if (currentGridMode === '1x1') {
                 return activeCameraId ? [activeCameraId] : [];
@@ -753,10 +1184,10 @@
                     body: JSON.stringify({ ids: targetIds })
                 });
                 const data = await res.json();
-                showToast(`▶️ สั่งเริ่มประมวลผล ${targetIds.length} กล้องที่เลือกแล้ว`, "#14a37f");
+                showToast(`⚡ สั่งเริ่มตรวจจับ ${targetIds.length} กล้องที่เลือกแล้ว`, "#14a37f");
                 fetchSystemStatus();
             } catch(e) {
-                showToast("❌ ไม่สามารถสั่งเล่นกล้องได้", "#e5484d");
+                showToast("❌ ไม่สามารถสั่งเริ่มตรวจจับกล้องได้", "#e5484d");
             }
         }
 
@@ -769,7 +1200,7 @@
                     body: JSON.stringify({ ids: targetIds })
                 });
                 const data = await res.json();
-                showToast(`⏸️ พักการประมวลผล ${targetIds.length} กล้องแล้ว`, "#f59e0b");
+                showToast(`⏸️ พักการตรวจจับ ${targetIds.length} กล้องแล้ว`, "#f59e0b");
                 fetchSystemStatus();
             } catch(e) {
                 showToast("❌ ไม่สามารถสั่งพักกล้องได้", "#e5484d");
@@ -785,7 +1216,7 @@
                     body: JSON.stringify({ ids: targetIds })
                 });
                 const data = await res.json();
-                showToast(`🛑 สั่งหยุดประมวลผล ${targetIds.length} กล้องแล้ว`, "#e5484d");
+                showToast(`🛑 สั่งหยุดการตรวจจับ ${targetIds.length} กล้องแล้ว`, "#e5484d");
                 fetchSystemStatus();
             } catch(e) {
                 showToast("❌ ไม่สามารถสั่งหยุดกล้องได้", "#e5484d");
@@ -796,10 +1227,10 @@
             try {
                 const res = await fetch(`${API_URL}/cameras/${camId}/play`, { method: 'POST' });
                 const data = await res.json();
-                showToast("▶️ สั่งเล่นกล้องสำเร็จ", "#14a37f");
+                showToast("⚡ สั่งเริ่มตรวจจับกล้องสำเร็จ", "#14a37f");
                 fetchSystemStatus();
             } catch(e) {
-                showToast("❌ ไม่สามารถสั่งเล่นกล้องได้", "#e5484d");
+                showToast("❌ ไม่สามารถสั่งเริ่มตรวจจับได้", "#e5484d");
             }
         }
 
@@ -807,7 +1238,7 @@
             try {
                 const res = await fetch(`${API_URL}/cameras/${camId}/pause`, { method: 'POST' });
                 const data = await res.json();
-                showToast("⏸️ สั่งพักกล้องสำเร็จ", "#f59e0b");
+                showToast("⏸️ สั่งพักตรวจจับกล้องสำเร็จ", "#f59e0b");
                 fetchSystemStatus();
             } catch(e) {
                 showToast("❌ ไม่สามารถสั่งพักกล้องได้", "#e5484d");
@@ -826,7 +1257,7 @@
         }
 
         async function selectSlotAsMain(slotIndex) {
-            const camId = (gridSlotCameras && gridSlotCameras[slotIndex]) ? gridSlotCameras[slotIndex] : (cachedCameras[slotIndex] ? cachedCameras[slotIndex].id : null);
+            const camId = (gridSlotCameras && gridSlotCameras[slotIndex]) ? gridSlotCameras[slotIndex] : null;
             if (!camId) return;
             const cam = cachedCameras.find(c => c.id === camId);
             if (!cam) return;
@@ -845,7 +1276,7 @@
             // Switch camera and trigger playback
             await changeCamera();
             await setGridMode('1x1');
-            
+
             const mainImg = document.getElementById('video-stream');
             if (mainImg) {
                 mainImg.src = `${API_URL}/video_feed?t=${Date.now()}`;
@@ -889,13 +1320,6 @@
         function updateVideoPreview() {
             const select = document.getElementById('camera-select');
             const url = select ? select.value : '';
-            
-            // Toggle Frame Skip visibility based on source type (Video file or YouTube)
-            const skipContainer = document.getElementById('frame-skip-container');
-            if (skipContainer) {
-                const isVideoOrYoutube = url && (url.startsWith('uploads/') || url.startsWith('http://') || url.startsWith('https://'));
-                skipContainer.style.display = isVideoOrYoutube ? 'inline-block' : 'none';
-            }
 
             const img = document.getElementById('video-preview');
             const caption = document.getElementById('video-preview-caption');
@@ -903,7 +1327,7 @@
             if (isVideoFileUrl(url)) {
                 videoPreviewAvailable = true;
                 const fname = decodeURIComponent(url.split('/').pop());
-                if (caption) caption.innerText = `ตัวอย่าง: ${fname} — กดปุ่มเริ่ม ▶️ เพื่อประมวลผล`;
+                if (caption) caption.innerText = `ตัวอย่าง: ${fname} — กดปุ่มสแกนตรวจจับเพื่อเริ่มทำงาน`;
                 img.onerror = () => {
                     videoPreviewAvailable = false;
                     const wrap = document.getElementById('video-preview-wrap');
@@ -997,14 +1421,117 @@
                 const response = await fetch(`${API_URL}/system_status`);
                 const data = await response.json();
 
-                document.getElementById('stat-fps').innerText = data.fps;
-                document.getElementById('stat-db').innerText = data.db_size + " คน";
-                document.getElementById('stat-unknown').innerText = data.unknown_count + " คน";
-                if(document.getElementById('stat-crossed')) {
-                    document.getElementById('stat-crossed').innerText = (data.line_cross_count || 0) + " คัน/คน";
+                if (data.cameras && data.cameras.length > 0) {
+                    cachedCameras = data.cameras;
                 }
-                if(document.getElementById('stat-skip')) {
-                    document.getElementById('stat-skip').innerText = (data.frame_skip !== undefined ? data.frame_skip : 0) + " เฟรม";
+                if (currentGridMode === '1x1') {
+                    if (data.active_camera_id && data.active_camera_id !== 'none') {
+                        activeCameraId = data.active_camera_id;
+                    }
+                } else {
+                    const visible = getVisibleSlotCameraIds();
+                    if (activeCameraId && !visible.includes(activeCameraId)) {
+                        activeCameraId = '';
+                    }
+                }
+                updateHitListHeaderLabel();
+
+                const isMultiCam = currentGridMode !== '1x1';
+                const visibleSlots = [];
+                if (isMultiCam) {
+                    const slotCount = getSlotCountForMode(currentGridMode);
+                    for (let i = 0; i < slotCount; i++) {
+                        const camId = gridSlotCameras[i];
+                        if (camId) {
+                            const camObj = (data.cameras || cachedCameras || []).find(c => c.id === camId);
+                            visibleSlots.push({ slotIndex: i, camId, cam: camObj });
+                        }
+                    }
+                }
+
+                // --- 1. FPS Tile ---
+                const fpsTile = document.getElementById('stat-fps');
+                const fpsLabel = document.getElementById('stat-label-fps');
+                if (fpsTile) {
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const singleFps = (!isMultiCam || visibleSlots.length === 0)
+                            ? (Number(data.fps) || 0)
+                            : (Number(visibleSlots[0].cam?.fps) || 0);
+                        fpsTile.innerText = singleFps.toFixed(1);
+                        fpsTile.style.fontSize = '1.42rem';
+                        if (fpsLabel) fpsLabel.innerText = "FPS";
+                        if (fpsTile.parentElement) fpsTile.parentElement.title = `FPS กล้องปัจจุบัน (${singleFps.toFixed(1)} FPS)`;
+                    } else {
+                        const fpsList = visibleSlots.map(s => (Number(s.cam?.fps) || 0).toFixed(1));
+                        const avgFps = (visibleSlots.reduce((sum, s) => sum + (Number(s.cam?.fps) || 0), 0) / visibleSlots.length).toFixed(1);
+                        if (visibleSlots.length === 2) {
+                            fpsTile.innerText = fpsList.join(' | ');
+                            fpsTile.style.fontSize = '1.15rem';
+                        } else {
+                            fpsTile.innerText = `${avgFps} (เฉลี่ย)`;
+                            fpsTile.style.fontSize = '1.25rem';
+                        }
+                        if (fpsLabel) fpsLabel.innerText = `FPS (${visibleSlots.length} จอ)`;
+                        if (fpsTile.parentElement) {
+                            fpsTile.parentElement.title = visibleSlots.map((s, idx) => `ช่อง ${s.slotIndex + 1} (${s.cam?.name || s.camId}): ${fpsList[idx]} FPS`).join('\n') + `\nเฉลี่ย: ${avgFps} FPS`;
+                        }
+                    }
+                }
+
+                // --- 2. DB Size Tile ---
+                const dbTile = document.getElementById('stat-db');
+                if (dbTile) {
+                    dbTile.innerText = (data.db_size || 0) + " คน";
+                }
+
+                // --- 3. Unknown Count Tile ---
+                const unknownTile = document.getElementById('stat-unknown');
+                const unknownLabel = document.getElementById('stat-label-unknown');
+                if (unknownTile) {
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const unkCount = (!isMultiCam || visibleSlots.length === 0)
+                            ? (Number(data.unknown_count) || 0)
+                            : (Number(visibleSlots[0].cam?.unknown_count) || 0);
+                        unknownTile.innerText = unkCount + " คน";
+                        if (unknownLabel) unknownLabel.innerText = "บุคคลทั่วไป";
+                        if (unknownTile.parentElement) unknownTile.parentElement.title = `บุคคลทั่วไปที่ตรวจพบ: ${unkCount} คน`;
+                    } else {
+                        const totalUnk = visibleSlots.reduce((sum, s) => sum + (Number(s.cam?.unknown_count) || 0), 0);
+                        unknownTile.innerText = totalUnk + " คน";
+                        if (unknownLabel) unknownLabel.innerText = `บุคคลทั่วไป (${visibleSlots.length} จอ)`;
+                        if (unknownTile.parentElement) {
+                            unknownTile.parentElement.title = visibleSlots.map(s => `ช่อง ${s.slotIndex + 1} (${s.cam?.name || s.camId}): ${Number(s.cam?.unknown_count) || 0} คน`).join('\n') + `\nรวมทั้งหมด: ${totalUnk} คน`;
+                        }
+                    }
+                }
+
+                // --- 4. Frame Skip Tile ---
+                const skipTile = document.getElementById('stat-skip');
+                const skipLabel = document.getElementById('stat-label-skip');
+                if (skipTile) {
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const skipVal = (!isMultiCam || visibleSlots.length === 0)
+                            ? (data.frame_skip !== undefined ? data.frame_skip : 0)
+                            : (visibleSlots[0].cam ? ((visibleSlots[0].cam.frame_skip !== undefined) ? visibleSlots[0].cam.frame_skip : (visibleSlots[0].cam.config?.frame_skip || 0)) : 0);
+                        skipTile.innerText = skipVal + " เฟรม";
+                        skipTile.style.fontSize = '1.42rem';
+                        if (skipLabel) skipLabel.innerText = "ข้ามเฟรมปัจจุบัน";
+                        if (skipTile.parentElement) skipTile.parentElement.title = `ข้ามเฟรม AI: ${skipVal} เฟรม`;
+                    } else {
+                        const skips = visibleSlots.map(s => s.cam ? ((s.cam.frame_skip !== undefined) ? s.cam.frame_skip : (s.cam.config?.frame_skip || 0)) : 0);
+                        const allSame = skips.every(v => v === skips[0]);
+                        if (allSame) {
+                            skipTile.innerText = `${skips[0]} เฟรม`;
+                            skipTile.style.fontSize = '1.42rem';
+                        } else {
+                            skipTile.innerText = skips.map((v, i) => `ช.${visibleSlots[i].slotIndex + 1}:${v}`).join(' ');
+                            skipTile.style.fontSize = '1.05rem';
+                        }
+                        if (skipLabel) skipLabel.innerText = `ข้ามเฟรม (${visibleSlots.length} จอ)`;
+                        if (skipTile.parentElement) {
+                            skipTile.parentElement.title = visibleSlots.map((s, i) => `ช่อง ${s.slotIndex + 1} (${s.cam?.name || s.camId}): ข้าม ${skips[i]} เฟรม`).join('\n');
+                        }
+                    }
                 }
 
                 // Update input if user is not focusing on it
@@ -1030,7 +1557,7 @@
 
                     const previewWrap = document.getElementById('video-preview-wrap');
 
-                    if (data.stream_state === 'playing') {
+                    if (data.stream_state === 'playing' && !isMultiCam) {
                         btnPlay.classList.add('active-play');
                         if (previewWrap) previewWrap.style.display = 'none';
                         if (feed && mockup) {
@@ -1053,7 +1580,7 @@
                             if (mockupText && mockupIndicator && mockup) {
                                 mockupText.innerText = "Offline / Idle";
                                 mockupIndicator.style.backgroundColor = "#ef4444";
-                                mockup.querySelector('p').innerText = "โปรดเลือกกล้อง / แหล่งข้อมูลวิดีโอจากด้านบน และกดปุ่มเริ่มทำงานเพื่อดึงสัญญาณภาพสด";
+                                mockup.querySelector('p').innerText = "โปรดเลือกกล้อง / แหล่งข้อมูลวิดีโอจากหัวจอนี้ และกดปุ่มเริ่มทำงานเพื่อดึงสัญญาณภาพสด";
                             }
                         }
                         if (feed && mockup) {
@@ -1073,15 +1600,32 @@
 
                 updateVideoProgress(data);
 
-                let camText = data.active_camera;
+                // --- 5. Current Camera Tile ---
+                const camTile = document.getElementById('stat-cam');
+                const camLabel = document.getElementById('stat-label-cam');
+                let camText = data.active_camera_name || data.active_camera || "กล้องหลัก";
                 if(camText === "0") camText = "Webcam";
                 else if(camText.startsWith("screen")) camText = "แคปหน้าจอ (Screen)";
                 else if(camText.startsWith("rtsp://")) camText = "RTSP CCTV";
                 else if(camText.startsWith("uploads/")) camText = "วิดีโอ (ไฟล์)";
                 else if(camText.startsWith("http://") || camText.startsWith("https://")) camText = "YouTube";
-                else camText = camText.length > 15 ? camText.substring(0, 15) + "..." : camText;
 
-                document.getElementById('stat-cam').innerText = camText;
+                if (camTile) {
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const nameToDisplay = (!isMultiCam || visibleSlots.length === 0)
+                            ? (camText.length > 18 ? camText.substring(0, 18) + "..." : camText)
+                            : (visibleSlots[0].cam?.name || visibleSlots[0].camId);
+                        camTile.innerText = nameToDisplay;
+                        if (camLabel) camLabel.innerText = "กล้องปัจจุบัน";
+                        if (camTile.parentElement) camTile.parentElement.title = `กล้องที่เลือก: ${camText}`;
+                    } else {
+                        camTile.innerText = `${visibleSlots.length} กล้อง (${currentGridMode})`;
+                        if (camLabel) camLabel.innerText = "มุมมองปัจจุบัน";
+                        if (camTile.parentElement) {
+                            camTile.parentElement.title = visibleSlots.map(s => `ช่อง ${s.slotIndex + 1}: ${s.cam?.name || s.camId}`).join('\n');
+                        }
+                    }
+                }
 
                 // Update Active Camera Title Badge
                 const titleBadge = document.getElementById('active-camera-title-badge');
@@ -1089,114 +1633,422 @@
                     const camName = data.active_camera_name || camText || "กล้องหลัก";
                     const isLive = data.stream_state === 'playing';
                     const isPaused = data.stream_state === 'paused';
-                    const stateIcon = isLive ? '🟢 กำลังตรวจจับ' : (isPaused ? '⏸️ พักชั่วคราว' : '🔴 หยุด');
-                    titleBadge.innerHTML = `กล้องหลัก: <strong>${escapeHTML(camName)}</strong> (${escapeHTML(stateIcon)} • ${Number(data.fps) || 0} FPS)`;
+                    titleBadge.className = `cctv-cam-badge ${isLive ? 'live' : (isPaused ? 'paused' : 'stopped')}`;
+                    titleBadge.innerText = isLive
+                        ? `🟢 LIVE (${Number(data.fps) || 0} FPS)`
+                        : (isPaused ? '⏸️ PAUSED' : '🔴 OFFLINE');
+                    titleBadge.title = camName;
                 }
 
                 // Sync Multi-Camera Wall if in grid mode
                 if (data.cameras && data.cameras.length > 0) {
                     cachedCameras = data.cameras;
-                    activeCameraId = data.active_camera_id;
+                    if (currentGridMode === '1x1') activeCameraId = data.active_camera_id;
                     if (currentGridMode !== '1x1') {
                         updateMultiCameraWallStatus(data.cameras);
                     }
                 }
 
                 const btnCrop = document.getElementById('btn-crop-screen');
-                if (data.active_camera.startsWith("screen")) {
-                    btnCrop.style.display = "inline-block";
-                } else {
-                    btnCrop.style.display = "none";
+                if (btnCrop) {
+                    if (data.active_camera && data.active_camera.startsWith("screen")) {
+                        btnCrop.style.display = "inline-block";
+                    } else {
+                        btnCrop.style.display = "none";
+                    }
                 }
 
+                // --- 6. Target Hits Stats ---
+                const statsTitleText = document.getElementById('target-stats-title-text');
                 const statsList = document.getElementById('target-stats-list');
-                if (data.target_stats && Object.keys(data.target_stats).length > 0) {
-                    let html = '';
-                    for (const [name, count] of Object.entries(data.target_stats)) {
-                        html += `<div class="target-stat-chip">
-                            <div class="name">${escapeHTML(name)}</div>
-                            <div class="count">${Number(count) || 0} ครั้ง</div>
-                        </div>`;
+
+                if (statsTitleText) {
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const singleName = (!isMultiCam || visibleSlots.length === 0) ? (data.active_camera_name || camText) : (visibleSlots[0].cam?.name || visibleSlots[0].camId);
+                        statsTitleText.innerText = `สถิติเป้าหมายที่พบ (${singleName})`;
+                    } else {
+                        statsTitleText.innerText = `สถิติเป้าหมายที่พบ (รวม ${visibleSlots.length} กล้องที่เปิดอยู่)`;
                     }
-                    statsList.innerHTML = html;
-                } else {
-                    statsList.innerHTML = `<div class="muted">ยังไม่พบเป้าหมายจากกล้องนี้</div>`;
+                }
+
+                if (statsList) {
+                    let aggregatedStats = {};
+                    let camHitSources = {};
+
+                    if (!isMultiCam || visibleSlots.length <= 1) {
+                        const targetStats = (!isMultiCam || visibleSlots.length === 0)
+                            ? (data.target_stats || {})
+                            : (visibleSlots[0].cam?.target_stats || {});
+                        aggregatedStats = targetStats;
+                    } else {
+                        visibleSlots.forEach(s => {
+                            const cName = s.cam?.name || `ช่อง ${s.slotIndex + 1}`;
+                            const tStats = s.cam ? (s.cam.target_stats || {}) : {};
+                            for (const [tName, count] of Object.entries(tStats)) {
+                                aggregatedStats[tName] = (aggregatedStats[tName] || 0) + Number(count || 0);
+                                if (!camHitSources[tName]) camHitSources[tName] = [];
+                                if (!camHitSources[tName].includes(cName)) {
+                                    camHitSources[tName].push(cName);
+                                }
+                            }
+                        });
+                    }
+
+                    if (aggregatedStats && Object.keys(aggregatedStats).length > 0) {
+                        let html = '';
+                        for (const [name, count] of Object.entries(aggregatedStats)) {
+                            const srcList = camHitSources[name] || [];
+                            const srcBadge = (isMultiCam && visibleSlots.length > 1 && srcList.length > 0)
+                                ? `<div class="muted" style="font-size: 0.72rem; margin-top: 3px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="พบจาก: ${escapeHTML(srcList.join(', '))}"><i class="ri-camera-lens-line"></i> ${escapeHTML(srcList.join(', '))}</div>`
+                                : '';
+
+                            html += `<div class="target-stat-chip">
+                                <div class="name">${escapeHTML(name)}</div>
+                                <div class="count">${Number(count) || 0} ครั้ง</div>
+                                ${srcBadge}
+                            </div>`;
+                        }
+                        statsList.innerHTML = html;
+                    } else {
+                        statsList.innerHTML = `<div class="muted">ยังไม่พบเป้าหมาย${isMultiCam && visibleSlots.length > 1 ? 'จากกล้องที่เปิดอยู่' : 'จากกล้องนี้'}</div>`;
+                    }
                 }
 
             } catch (error) { }
         }
 
+        const HIT_PAGE_SIZE = 12;
         let currentAlertsData = [];
+        let hitListHasMore = true;
+        let hitListLoading = false;
+        let hitListCameraId = null;
+        let hitListObserver = null;
+        let hitListRetryMode = 'older';
+        let hitListLegacyMode = false;
 
-        async function fetchAlerts() {
-            try {
-                const response = await fetch(`${API_URL}/target_hits`);
-                const data = await response.json();
-                const alertsDiv = document.getElementById('alerts-output');
+        function formatHitListTime(hit) {
+            const timestamp = String(hit.timestamp || '');
+            if (!timestamp.includes(' ')) return String(hit.time || '');
+            const [datePart, timePart] = timestamp.split(' ');
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            return datePart === today ? timePart : `${datePart.slice(5)} ${timePart}`;
+        }
 
-                currentAlertsData = data;
+        function renderLprReviewStatus(hit, compact = false) {
+            const status = String(hit.lpr_status || '').trim();
+            if (!status) return '';
+            const samples = Math.max(0, Number(hit.lpr_sample_count) || 0);
+            const initialPlate = String(hit.lpr_initial_plate || '').trim();
+            const finalPlate = String(hit.license_plate || '').trim();
+            const corrected = status === 'verified' && initialPlate && finalPlate && initialPlate !== finalPlate;
+            const sampleText = samples ? `${samples} เฟรม` : '';
 
-                if (!data || data.length === 0) {
-                    alertsDiv.innerHTML = `<div class="empty-state">ยังไม่พบรายการตรวจจับล่าสุด</div>`;
-                    return;
-                }
+            if (status === 'queued') {
+                return `<span class="lpr-review-badge queued" title="พบรถแล้ว อยู่ในคิวรอวิเคราะห์ป้ายทะเบียน"><progress aria-label="รออ่านป้าย"></progress><span>${compact ? 'รออ่าน' : 'รออ่านป้าย'}</span></span>`;
+            }
+            if (status === 'reading') {
+                return `<span class="lpr-review-badge reading" title="ระบบกำลังวิเคราะห์ภาพป้ายทะเบียน"><progress aria-label="กำลังอ่านป้าย"></progress><span>${compact ? 'กำลังอ่าน' : 'กำลังอ่านป้าย'}</span></span>`;
+            }
+            if (status === 'pending') {
+                return `<span class="lpr-review-badge pending" title="ระบบกำลังอ่านซ้ำจากหลายเฟรมเพื่อความแม่นยำ"><progress aria-label="กำลังตรวจสอบ"></progress><span>${compact ? 'ตรวจซ้ำ' : `กำลังตรวจสอบ${sampleText ? ` · ${sampleText}` : ''}`}</span></span>`;
+            }
+            if (status === 'verified') {
+                const correctionText = corrected && !compact
+                    ? `<span class="lpr-correction">แก้จาก ${escapeHTML(initialPlate)}</span>`
+                    : '';
+                return `<span class="lpr-review-badge verified" title="ยืนยันผลอ่านป้ายทะเบียนเรียบร้อย"><i class="ri-checkbox-circle-fill"></i><span>${compact ? 'ยืนยันแล้ว' : `ยืนยันแล้ว${sampleText ? ` · ${sampleText}` : ''}`}</span>${correctionText}</span>`;
+            }
+            if (status === 'partial') {
+                return `<span class="lpr-review-badge partial" title="อ่านได้เฉพาะตัวเลขหรือบางส่วนของป้าย ไม่ครบทั้งป้าย"><i class="ri-information-fill"></i><span>${compact ? 'ได้บางส่วน' : `ได้บางส่วน${sampleText ? ` · ${sampleText}` : ''}`}</span></span>`;
+            }
+            if (status === 'unreadable') {
+                return `<span class="lpr-review-badge unreadable" title="ไม่สามารถอ่านตัวอักษรทะเบียนจากภาพได้"><i class="ri-eye-close-fill"></i><span>${compact ? 'อ่านไม่ได้' : 'อ่านป้ายไม่ได้'}</span></span>`;
+            }
+            return `<span class="lpr-review-badge uncertain" title="ผลจากหลายเฟรมยังไม่ตรงกัน หรือยังไม่สมบูรณ์ ควรตรวจภาพด้วยคน"><i class="ri-error-warning-fill"></i><span>${compact ? 'ควรตรวจ' : `ควรตรวจด้วยคน${sampleText ? ` · ${sampleText}` : ''}`}</span></span>`;
+        }
 
-
-                let html = '';
-                for (let i = 0; i < data.length; i++) {
-                    const hit = data[i];
+        function renderHitCard(hit, deferred = false) {
                     const rawName = (hit.name || "").trim();
                     const hitImgUrl = safeMediaUrl(hit.full_url || hit.img_url);
                     const plateImgUrl = safeMediaUrl(hit.plate_img_url);
 
                     const badgeHtml = hit.is_color_edited ? `<span class="color-badge-edited">✓ แก้ไขสีแล้ว</span>` : '';
-                    
+
                     // A hit is a normal (non-target) detection if it matches any of:
                     // - Contains "[LPR]" or starts with "LPR" (regular license plate read)
                     // - Contains "บุคคลทั่วไป" or "unknown" (general non-target person)
                     // - Starts with "รถยนต์ทั่วไป" or "ยานพาหนะทั่วไป" (general non-target vehicle)
                     const isLprOnly = rawName.includes("[LPR]") || rawName.startsWith("LPR");
-                    const isUnknownPerson = rawName.includes("บุคคลทั่วไป") || rawName.toLowerCase().includes("unknown");
+                    const isZoneAlert = rawName.includes("ในพื้นที่") || rawName.includes("วัตถุต้องสงสัย") || hit.detection_type === "zone_entry" || hit.detection_type === "zone_uncertain";
+                    const isLineAlert = rawName.includes("ข้ามเส้น") || hit.detection_type === "line_cross";
+                    const isGeneralPerson = rawName.includes("บุคคลทั่วไป") || rawName.toLowerCase().includes("person_");
+                    const isUnknownFallback = rawName.toLowerCase().includes("unknown");
                     const isGeneralVehicle = rawName.startsWith("รถยนต์ทั่วไป") || rawName.startsWith("ยานพาหนะทั่วไป");
-                    
-                    const isTarget = !isLprOnly && !isUnknownPerson && !isGeneralVehicle;
                     const isPlateTarget = rawName.includes("ทะเบียนเป้าหมาย") || rawName.includes("💳");
-                    
-                    const targetBadge = isPlateTarget 
-                        ? `<span style="background: #f59e0b; color: #0f172a; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">💳 เป้าหมายทะเบียน</span>`
-                        : (isTarget ? `<span style="background: #e5484d; color: #ffffff; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px;">🎯 TARGET</span>` : '');
 
-                    html += `
-                    <div class="hit-item ${isTarget ? 'target-alert' : 'normal-hit'}">
+                    let targetBadge = '';
+                    let isTarget = false;
+
+                    if (isPlateTarget) {
+                        isTarget = true;
+                        targetBadge = `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 0 10px rgba(245,158,11,0.4);"><i class="ri-id-card-fill"></i> เป้าหมายทะเบียน</span>`;
+                    } else if (isZoneAlert) {
+                        isTarget = true;
+                        targetBadge = `<span style="background: linear-gradient(135deg, #a855f7, #ec4899); color: #ffffff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 0 10px rgba(236,72,153,0.45);"><i class="ri-map-pin-user-fill"></i> Zone Alert</span>`;
+                    } else if (isLineAlert) {
+                        isTarget = true;
+                        targetBadge = `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 0 10px rgba(245,158,11,0.4);"><i class="ri-crosshair-line"></i> Line Alert</span>`;
+                    } else if (isGeneralPerson || isUnknownFallback) {
+                        isTarget = true;
+                        targetBadge = `<span style="background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #ffffff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 0 10px rgba(6,182,212,0.4);"><i class="ri-user-3-fill"></i> บุคคลทั่วไป</span>`;
+                    } else if (isLprOnly) {
+                        isTarget = false;
+                        targetBadge = `<span style="background: #334155; color: #94a3b8; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px;"><i class="ri-font-size-2"></i> อ่านทะเบียน</span>`;
+                    } else if (isGeneralVehicle) {
+                        isTarget = false;
+                        targetBadge = `<span style="background: #334155; color: #94a3b8; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px;"><i class="ri-car-fill"></i> ยานพาหนะ</span>`;
+                    } else {
+                        isTarget = true;
+                        targetBadge = `<span style="background: linear-gradient(135deg, #ef4444, #f43f5e); color: #ffffff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; box-shadow: 0 0 10px rgba(244,63,94,0.4);"><i class="ri-focus-3-fill"></i> TARGET</span>`;
+                    }
+
+                    const hitId = Number(hit.id) || 0;
+                    const imageLoading = deferred ? 'lazy' : 'eager';
+                    const deferredClass = deferred ? ' hit-item-deferred' : '';
+                    const lprReviewHtml = renderLprReviewStatus(hit);
+                    return `
+                    <article class="hit-item ${isTarget ? 'target-alert' : 'normal-hit'}${deferredClass}" data-hit-id="${hitId}">
                         <div class="hit-head">
-                            <strong class="hit-name" style="${isTarget ? 'color: var(--danger); font-weight: 700;' : 'color: var(--text-main); font-weight: 600;'}">${escapeHTML(hit.name)} ${badgeHtml} ${targetBadge} <span class="hit-conf">(${Number(hit.confidence) || 0}%)</span></strong>
-                            <span class="hit-time">🕒 ${escapeHTML(hit.time)}</span>
+                            <strong class="hit-name" style="${isTarget ? 'color: var(--text-main); font-weight: 700;' : 'color: var(--text-main); font-weight: 600;'}">${escapeHTML(hit.name)} ${badgeHtml} ${targetBadge} <span class="hit-conf">(${Number(hit.confidence) || 0}%)</span> ${lprReviewHtml}</strong>
+                            <span class="hit-time"><i class="ri-time-line"></i> ${escapeHTML(formatHitListTime(hit))}</span>
                         </div>
                         <div style="position: relative; width: 100%;">
-                            <img src="${hitImgUrl}" onclick="openImageModalByIndex(${i}, event)" title="คลิกเพื่อดูภาพใหญ่" style="display: block; width: 100%; border-radius: 6px; ${isTarget ? 'border: 1.5px solid var(--danger);' : 'border: 1px solid var(--border);'}">
+                            <button type="button" class="hit-image-button" onclick="openImageModalById(${hitId}, event)" aria-label="เปิดภาพเหตุการณ์ ${escapeHTML(hit.name)}">
+                                <img src="${hitImgUrl}" alt="เหตุการณ์ ${escapeHTML(hit.name)}" loading="${imageLoading}" ${deferred ? 'fetchpriority="low"' : ''} style="display: block; width: 100%; border-radius: 6px; ${isTarget ? 'border: 1.5px solid rgba(255,255,255,0.2);' : 'border: 1px solid var(--border);'}">
+                            </button>
 
                             ${plateImgUrl ? `
                             <div style="position: absolute; right: 8px; bottom: 8px; background: rgba(15, 23, 42, 0.88); border: 1.5px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); max-width: 130px; display: flex; flex-direction: column; align-items: center; gap: 4px; backdrop-filter: blur(4px);">
                                 <span style="font-size: 0.65rem; color: #94a3b8; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;">License Plate</span>
-                                <img src="${plateImgUrl}" style="max-height: 40px; max-width: 100%; object-fit: contain; border-radius: 3px;" title="ภาพครอบป้ายทะเบียน">
+                                <img src="${plateImgUrl}" alt="ภาพครอบป้ายทะเบียน" loading="lazy" style="max-height: 40px; max-width: 100%; object-fit: contain; border-radius: 3px;">
                                 ${hit.license_plate ? `<span style="font-size: 0.8rem; color: #fff; font-weight: bold; background: #334155; padding: 2px 6px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(hit.license_plate)}</span>` : ''}
                             </div>
                             ` : ''}
                         </div>
-                    </div>`;
+                    </article>`;
+        }
+
+        function setHitListStatus(state) {
+            const sentinel = document.getElementById('hit-list-sentinel');
+            if (!sentinel) return;
+            if (state === 'loading') {
+                sentinel.innerHTML = `<progress class="hit-list-progress" aria-label="กำลังโหลดเหตุการณ์เก่า"></progress><span>กำลังโหลดเหตุการณ์เก่า...</span>`;
+            } else if (state === 'end') {
+                sentinel.innerHTML = `<span><i class="ri-check-double-line"></i> แสดงเหตุการณ์ครบแล้ว</span>`;
+            } else if (state === 'error') {
+                sentinel.innerHTML = `<button type="button" class="hit-list-retry" onclick="retryHitListLoad()">โหลดไม่สำเร็จ — ลองอีกครั้ง</button>`;
+            } else if (state === 'legacy') {
+                sentinel.innerHTML = `<span class="hit-list-legacy-note"><i class="ri-information-line"></i> กำลังแสดงรายการล่าสุด — เปิดโปรแกรมใหม่เพื่อเลื่อนดูรายการเก่า</span>`;
+            } else {
+                sentinel.innerHTML = `<span><i class="ri-arrow-down-line"></i> เลื่อนลงเพื่อดูเหตุการณ์เก่า</span>`;
+            }
+        }
+
+        function replaceVisibleHit(hit) {
+            const hitId = Number(hit.id) || 0;
+            const existingCard = document.querySelector(`.hit-item[data-hit-id="${hitId}"]`);
+            if (!existingCard) return;
+            const index = currentAlertsData.findIndex(item => Number(item.id) === hitId);
+            existingCard.outerHTML = renderHitCard(hit, index >= 4);
+        }
+
+        async function requestLegacyHits() {
+            const params = new URLSearchParams();
+            if (activeCameraId) params.set('camera_id', activeCameraId);
+            const suffix = params.size ? `?${params}` : '';
+            const response = await fetch(`${API_URL}/target_hits${suffix}`);
+            if (!response.ok) throw new Error(`Legacy Hit List request failed (${response.status})`);
+            const items = await response.json();
+            return { items: Array.isArray(items) ? items : [], has_more: false, legacy: true };
+        }
+
+        async function requestHitPage({ beforeId = null, afterId = null, limit = HIT_PAGE_SIZE, camera = null } = {}) {
+            const params = new URLSearchParams({ limit: String(limit) });
+            let targetCamera = camera;
+            if (!targetCamera) {
+                targetCamera = activeCameraId;
+                if (!targetCamera && currentGridMode !== '1x1') {
+                    const visible = getVisibleSlotCameraIds();
+                    if (visible.length > 0) targetCamera = visible.join(',');
                 }
+            }
+            if (targetCamera && targetCamera !== 'all') {
+                params.set('camera_id', targetCamera);
+            }
+            if (beforeId) params.set('before_id', String(beforeId));
+            if (afterId) params.set('after_id', String(afterId));
+            const response = await fetch(`${API_URL}/target_hits_page?${params}`);
+            if ((response.status === 404 || response.status === 405) && !beforeId && !afterId) {
+                return requestLegacyHits();
+            }
+            if (!response.ok) throw new Error(`Hit List request failed (${response.status})`);
+            return response.json();
+        }
 
-                alertsDiv.innerHTML = html;
+        async function fetchAlerts(forceReset = false) {
+            let requestedCamera = activeCameraId;
+            if (!requestedCamera && currentGridMode !== '1x1') {
+                const visible = getVisibleSlotCameraIds();
+                if (visible.length > 0) requestedCamera = visible.join(',');
+            }
+            if (!requestedCamera) requestedCamera = 'all';
 
+            if (hitListCameraId !== requestedCamera) forceReset = true;
+            if (hitListLoading) return;
+            hitListLoading = true;
+            const alertsDiv = document.getElementById('alerts-output');
+            alertsDiv.setAttribute('aria-busy', 'true');
+            try {
+                let data;
+                if (!forceReset && currentAlertsData.length > 0 && hitListLegacyMode) {
+                    data = await requestLegacyHits();
+                } else if (!forceReset && currentAlertsData.length > 0) {
+                    const newestId = Number(currentAlertsData[0].id) || 0;
+                    const collected = [];
+                    let afterId = newestId;
+                    do {
+                        data = await requestHitPage({ afterId, limit: 50 });
+                        const pageItems = Array.isArray(data.items) ? data.items : [];
+                        collected.push(...pageItems);
+                        if (pageItems.length > 0) afterId = pageItems[pageItems.length - 1].id;
+                    } while (data.has_more && data.items.length > 0);
+                    // Multi-frame LPR review updates the existing row instead
+                    // of creating another event, so also refresh recent IDs.
+                    const latestPage = await requestHitPage({ limit: HIT_PAGE_SIZE });
+                    const mergedById = new Map();
+                    for (const hit of [...collected.reverse(), ...(latestPage.items || [])]) {
+                        mergedById.set(Number(hit.id), hit);
+                    }
+                    data = {
+                        ...data,
+                        items: [...mergedById.values()].sort((a, b) => Number(b.id) - Number(a.id)),
+                        has_more: hitListHasMore,
+                    };
+                } else {
+                    data = await requestHitPage();
+                }
+                const items = Array.isArray(data.items) ? data.items : [];
+                const itemsDiv = document.getElementById('hit-list-items');
+                hitListLegacyMode = Boolean(data.legacy);
+
+                if (forceReset || currentAlertsData.length === 0) {
+                    hitListCameraId = requestedCamera;
+                    currentAlertsData = items;
+                    hitListHasMore = Boolean(data.has_more);
+                    itemsDiv.innerHTML = items.length
+                        ? items.map((hit, index) => renderHitCard(hit, index >= 4)).join('')
+                        : `<div class="empty-state">ยังไม่พบรายการตรวจจับล่าสุด</div>`;
+                    alertsDiv.scrollTop = 0;
+                } else {
+                    const knownIds = new Set(currentAlertsData.map(hit => Number(hit.id)));
+                    const freshItems = items.filter(hit => !knownIds.has(Number(hit.id)));
+                    const currentById = new Map(currentAlertsData.map(hit => [Number(hit.id), hit]));
+
+                    for (const hit of items) {
+                        const existing = currentById.get(Number(hit.id));
+                        if (existing) {
+                            Object.assign(existing, hit);
+                            replaceVisibleHit(existing);
+                        }
+                    }
+
+                    if (freshItems.length > 0) {
+                        const wasNearTop = alertsDiv.scrollTop < 48;
+                        const oldHeight = alertsDiv.scrollHeight;
+                        currentAlertsData = [...freshItems, ...currentAlertsData];
+                        itemsDiv.querySelector('.empty-state')?.remove();
+                        itemsDiv.insertAdjacentHTML('afterbegin', freshItems.map(hit => renderHitCard(hit, false)).join(''));
+                        if (wasNearTop) {
+                            alertsDiv.scrollTop = 0;
+                        } else {
+                            alertsDiv.scrollTop += alertsDiv.scrollHeight - oldHeight;
+                        }
+                    }
+                }
+                if (isLiveMatrixModalOpen()) {
+                    renderLiveMatrix();
+                }
+                setHitListStatus(hitListLegacyMode ? 'legacy' : (hitListHasMore ? 'more' : 'end'));
             } catch (error) {
                 console.error("Error fetching alerts:", error);
+                if (currentAlertsData.length === 0) {
+                    hitListRetryMode = 'latest';
+                    setHitListStatus('error');
+                } else {
+                    setHitListStatus(hitListLegacyMode ? 'legacy' : (hitListHasMore ? 'more' : 'end'));
+                }
+            } finally {
+                hitListLoading = false;
+                alertsDiv.setAttribute('aria-busy', 'false');
             }
+        }
 
+        async function loadOlderHits() {
+            if (hitListLegacyMode || hitListLoading || !hitListHasMore || currentAlertsData.length === 0) return;
+            hitListLoading = true;
+            const alertsDiv = document.getElementById('alerts-output');
+            alertsDiv.setAttribute('aria-busy', 'true');
+            setHitListStatus('loading');
+            try {
+                const oldestId = currentAlertsData[currentAlertsData.length - 1].id;
+                const data = await requestHitPage({ beforeId: oldestId });
+                const knownIds = new Set(currentAlertsData.map(hit => Number(hit.id)));
+                const olderItems = (Array.isArray(data.items) ? data.items : []).filter(hit => !knownIds.has(Number(hit.id)));
+                const itemsDiv = document.getElementById('hit-list-items');
+                const startIndex = currentAlertsData.length;
+                currentAlertsData.push(...olderItems);
+                itemsDiv.insertAdjacentHTML('beforeend', olderItems.map((hit, index) => renderHitCard(hit, startIndex + index >= 4)).join(''));
+                hitListHasMore = Boolean(data.has_more);
+                setHitListStatus(hitListHasMore ? 'more' : 'end');
+            } catch (error) {
+                console.error('Error loading older hits:', error);
+                hitListRetryMode = 'older';
+                setHitListStatus('error');
+            } finally {
+                hitListLoading = false;
+                alertsDiv.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        function retryHitListLoad() {
+            if (hitListRetryMode === 'latest') {
+                fetchAlerts(true);
+            } else {
+                loadOlderHits();
+            }
+        }
+
+        function initHitListInfiniteScroll() {
+            const scrollArea = document.getElementById('alerts-output');
+            const sentinel = document.getElementById('hit-list-sentinel');
+            if (!scrollArea || !sentinel) return;
+            if ('IntersectionObserver' in window) {
+                hitListObserver = new IntersectionObserver(entries => {
+                    if (entries.some(entry => entry.isIntersecting)) loadOlderHits();
+                }, { root: scrollArea, rootMargin: '0px 0px 240px 0px' });
+                hitListObserver.observe(sentinel);
+            } else {
+                scrollArea.addEventListener('scroll', () => {
+                    if (scrollArea.scrollTop + scrollArea.clientHeight >= scrollArea.scrollHeight - 240) loadOlderHits();
+                }, { passive: true });
+            }
         }
 
         async function changeCamera() {
             const select = document.getElementById('camera-select');
             const newUrl = select.value;
+            if (!newUrl) return;
             const frameSkip = document.getElementById('frame-skip').value || 0;
 
             updateVideoPreview();
@@ -1218,7 +2070,7 @@
                 if (feed) {
                     feed.src = `${API_URL}/video_feed?t=${Date.now()}`;
                 }
-                showToast("✅ สลับกล้องเรียบร้อย กำลังเริ่มประมวลผล...", "#14a37f");
+                showToast("เชื่อมต่อแหล่งภาพแล้ว รอกดปุ่มเริ่มตรวจจับ", "#2563eb");
                 fetchSystemStatus();
             } catch(e) {
                 showToast("❌ เกิดข้อผิดพลาดในการเปลี่ยนกล้อง", "#e5484d");
@@ -1244,7 +2096,7 @@
             const searchTerm = document.getElementById('yolo-search').value;
             const formData = new FormData();
             formData.append("search_term", searchTerm);
-            
+
             try {
                 const response = await fetch(`${API_URL}/set_custom_search`, {
                     method: 'POST',
@@ -1265,6 +2117,7 @@
             const frameSkip = document.getElementById('frame-skip').value || 0;
             const formData = new FormData();
             formData.append("frame_skip", frameSkip);
+            if (activeCameraId) formData.append("camera_id", activeCameraId);
 
             try {
                 await fetch(`${API_URL}/set_frame_skip`, {
@@ -1280,7 +2133,9 @@
             try {
                 const response = await fetch(`${API_URL}/system_settings`);
                 const data = await response.json();
-                document.getElementById('save-unknown').checked = data.save_unknown_faces;
+                if(document.getElementById('save-unknown') && data.hasOwnProperty('save_unknown_faces')) {
+                    document.getElementById('save-unknown').checked = data.save_unknown_faces;
+                }
                 if(document.getElementById('show-only-targets')) {
                     document.getElementById('show-only-targets').checked = data.show_only_targets;
                 }
@@ -1302,10 +2157,30 @@
                 if(document.getElementById('frame-skip') && data.frame_skip !== undefined) {
                     document.getElementById('frame-skip').value = data.frame_skip;
                 }
+                if(document.getElementById('detect-any-person') && data.hasOwnProperty('detect_any_person')) {
+                    document.getElementById('detect-any-person').checked = Boolean(data.detect_any_person);
+                }
                 if(document.getElementById('enable-lpr') && data.enable_lpr !== undefined) {
                     document.getElementById('enable-lpr').checked = data.enable_lpr;
                 }
             } catch(e) {}
+        }
+
+        async function toggleDetectAnyPerson() {
+            const isChecked = document.getElementById('detect-any-person').checked;
+            try {
+                await fetch(`${API_URL}/update_settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        detect_any_person: isChecked,
+                        save_unknown_faces: isChecked
+                    })
+                });
+                showToast(isChecked ? "👤 เปิดตรวจจับและบันทึกบุคคลทั่วไป" : "🎯 ตรวจจับเฉพาะบุคคลเป้าหมาย", isChecked ? "#10b981" : "#f43f5e");
+            } catch(e) {
+                console.error("Failed to update detect_any_person settings");
+            }
         }
 
         async function toggleLPR() {
@@ -1438,7 +2313,7 @@
             e.preventDefault();
             const text = document.getElementById('vehicleText').value;
             const fileInput = document.getElementById('vehicleFile');
-            
+
             if (!text && fileInput.files.length === 0) {
                 showToast("❌ กรุณาพิมพ์ข้อความ หรืออัปโหลดรูปภาพรถ", "#e5484d");
                 return;
@@ -1455,7 +2330,7 @@
                     formData.append("text", text);
                     res = await fetch(`${API_URL}/add_vehicle_target`, { method: 'POST', body: formData });
                 }
-                
+
                 const data = await res.json();
                 if(data.status === 'success') {
                     showToast(`✅ ${data.message}`, "#14a37f");
@@ -1478,7 +2353,7 @@
                     if (feed) {
                         feed.src = `${API_URL}/video_feed?t=${Date.now()}`;
                     }
-                    showToast("▶️ เริ่มประมวลผล", "#14a37f");
+                    showToast("⚡ เริ่มสแกนตรวจจับ", "#14a37f");
                     fetchSystemStatus();
                 } else {
                     showToast("❌ " + result.message, "#e5484d");
@@ -1493,7 +2368,7 @@
                 const response = await fetch(`${API_URL}/pause_stream`, { method: 'POST' });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    showToast("⏸️ พักการประมวลผล", "#f59e0b");
+                    showToast("⏸️ พักการตรวจจับ", "#f59e0b");
                 } else {
                     showToast("❌ " + result.message, "#e5484d");
                 }
@@ -1509,7 +2384,12 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    showToast("🛑 สั่งหยุดประมวลผลเรียบร้อย", "#14a37f");
+                    const feed = document.getElementById('video-feed');
+                    if (feed) {
+                        feed.src = '';
+                        feed.style.display = 'none';
+                    }
+                    showToast("🛑 สั่งหยุดการตรวจจับเรียบร้อย", "#14a37f");
                 } else {
                     showToast("❌ " + result.message, "#e5484d");
                 }
@@ -1527,7 +2407,7 @@
 
                 const currentSelected = camSelect.value;
 
-                camSelect.innerHTML = "";
+                camSelect.innerHTML = `<option value="" disabled ${!currentSelected ? 'selected' : ''}>-- เลือกกล้องหรือแหล่งวิดีโอ --</option>`;
                 cameras.forEach(cam => {
                     const opt = document.createElement("option");
                     opt.value = cam.url;
@@ -1542,16 +2422,20 @@
                     try {
                         const statusRes = await fetch(`${API_URL}/system_status`);
                         const statusData = await statusRes.json();
-                        activeCameraId = statusData.active_camera_id;
-                        if (Array.from(camSelect.options).some(opt => opt.value === statusData.active_camera)) {
-                            camSelect.value = statusData.active_camera;
+                        if (currentGridMode === '1x1' && statusData.active_camera_id && statusData.active_camera_id !== "none") {
+                            activeCameraId = statusData.active_camera_id;
+                            if (Array.from(camSelect.options).some(opt => opt.value === statusData.active_camera)) {
+                                camSelect.value = statusData.active_camera;
+                            }
+                        } else {
+                            camSelect.value = "";
                         }
                     } catch (err) {}
                 }
 
                 updateVideoPreview();
                 if (currentGridMode !== '1x1') {
-                    renderMultiCameraWall();
+                    await setGridMode(currentGridMode, false);
                 }
             } catch (error) {
                 console.error("Error fetching cameras", error);
@@ -1570,15 +2454,16 @@
         }
 
         window.onload = async () => {
+            initHitListInfiniteScroll();
             try {
-                // Wait for all initial fetches to complete before hiding the page loader
+                // Load the camera first so the Hit List cannot briefly show another camera.
                 await Promise.all([
                     loadCameras(),
                     fetchSystemSettings(),
-                    fetchSystemStatus(),
-                    fetchAlerts(),
                     loadTargetsMap()
                 ]);
+                await fetchSystemStatus();
+                await fetchAlerts(true);
             } catch(e) {
                 console.error("Initial data loading error:", e);
             } finally {
@@ -1620,6 +2505,11 @@
         let currentFullUrl = "";
         let currentModalImageIndex = 0;
 
+        function openImageModalById(hitId, e) {
+            const index = currentAlertsData.findIndex(hit => Number(hit.id) === Number(hitId));
+            if (index >= 0) openImageModalByIndex(index, e);
+        }
+
         async function openImageModalByIndex(index, e) {
             if(e) e.stopPropagation();
             if (index < 0 || index >= currentAlertsData.length) return;
@@ -1630,10 +2520,10 @@
 
             const modal = document.getElementById("imageModal");
             modal.style.display = "flex";
-            
+
             // โหลดข้อมูลเป้าหมายล่าสุดเสมอ เผื่อมีการอัปเดต/เพิ่มเป้าหมายเข้ามาใหม่
             await loadTargetsMap();
-            
+
             // Comparison view for registered targets
             const rawName = String(hit.name || "").split(" (#")[0];
             const refImgUrl = faceTargetsMap[rawName] || vehicleTargetsMap[rawName];
@@ -1653,9 +2543,9 @@
                 infoText.innerHTML = `🎯 ตรวจพบ: ${escapeHTML(hit.name)}${badgeText} (ความมั่นใจ: ${Number(hit.confidence) || 0}%)`;
             }
 
-            switchModalImg(refImgUrl ? 'crop' : 'full'); // ซูมเป้าหมายหากมีภาพอ้างอิงเปรียบเทียบ
+            switchModalImg((refImgUrl || hit.license_plate) ? 'crop' : 'full'); // ซูมเป้าหมายหากมีภาพอ้างอิงหรือเป็นงานอ่านป้ายทะเบียน LPR
             updateModalNavigationButtons();
-            
+
             // License plate overlay in modal
             const lprOverlay = document.getElementById("modal-lpr-overlay");
             const lprImg = document.getElementById("modalLprImg");
@@ -1670,6 +2560,7 @@
                     lprImg.style.display = "none";
                 }
                 infoText.innerHTML = `${infoText.innerHTML} <span style="margin-left: 8px; font-size: 0.95rem; color: #38bdf8; background: rgba(15,23,42,0.8); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56,189,248,0.4);">🚗 ป้าย: ${escapeHTML(hit.license_plate)}</span>`;
+                infoText.innerHTML = `${infoText.innerHTML} ${renderLprReviewStatus(hit)}`;
             } else {
                 lprOverlay.style.display = "none";
             }
@@ -1695,7 +2586,7 @@
                 Swal.fire('ข้อผิดพลาด', 'ไม่พบข้อมูล Hit ID ของรถคันนี้', 'error');
                 return;
             }
-            
+
             const { value: color } = await Swal.fire({
                 title: 'แก้ไขสีรถ',
                 input: 'select',
@@ -1735,11 +2626,12 @@
                     if (result.status === 'success') {
                         Swal.fire('สำเร็จ!', result.message, 'success');
                         hit.is_color_edited = 1;
+                        replaceVisibleHit(hit);
                         // update modal button immediately
                         const editColorBtn = document.getElementById("btn-edit-color");
                         editColorBtn.innerHTML = "✓ แก้ไขสีแล้ว";
                         editColorBtn.className = "btn btn-success";
-                        
+
                         // update modal title/info with badge
                         const rawName = String(hit.name || "").split(" (#")[0];
                         const refImgUrl = faceTargetsMap[rawName] || vehicleTargetsMap[rawName];
@@ -1801,14 +2693,14 @@
 
             const modal = document.getElementById("imageModal");
             modal.style.display = "flex";
-            
+
             // Hide prev/next if opened through generic function
             document.getElementById("btn-prev-img").style.display = "none";
             document.getElementById("btn-next-img").style.display = "none";
             document.getElementById("modal-ref-box").style.display = "none";
             document.getElementById("modal-detect-label").style.display = "none";
             document.getElementById("modal-info-text").innerText = "";
-            
+
             switchModalImg('full'); // เริ่มต้นด้วยรูปมุมกว้าง
         }
 
@@ -1840,6 +2732,165 @@
         function closeTargetModal() {
             document.getElementById("targetModal").style.display = "none";
         }
+
+        /* ============================================================
+           Live Hit Matrix Modal (Real-Time Grid View)
+           ============================================================ */
+        let matrixActiveFilter = 'all';
+        let matrixActiveCols = 3;
+
+        function isLiveMatrixModalOpen() {
+            const modal = document.getElementById('liveHitMatrixModal');
+            return modal && modal.style.display === 'flex';
+        }
+
+        function openLiveHitMatrixModal() {
+            const modal = document.getElementById('liveHitMatrixModal');
+            if (!modal) return;
+            modal.style.display = 'flex';
+            renderLiveMatrix();
+        }
+
+        function closeLiveHitMatrixModal() {
+            const modal = document.getElementById('liveHitMatrixModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function setMatrixFilter(filter) {
+            matrixActiveFilter = filter;
+            document.querySelectorAll('.matrix-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+            renderLiveMatrix();
+        }
+
+        function setMatrixColumns(cols) {
+            matrixActiveCols = cols;
+            document.querySelectorAll('.matrix-col-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.cols) === cols);
+            });
+            const grid = document.getElementById('live-matrix-grid');
+            if (grid) {
+                grid.className = `live-matrix-grid cols-${cols}`;
+            }
+        }
+
+        function matchesMatrixFilter(hit, filter) {
+            if (filter === 'all') return true;
+            const rawName = (hit.name || "").trim();
+            const isLpr = rawName.includes("[LPR]") || rawName.startsWith("LPR") || Boolean(hit.plate_img_url || hit.license_plate);
+            const isPlateTarget = rawName.includes("ทะเบียนเป้าหมาย") || rawName.includes("💳");
+            const isZone = rawName.includes("ในพื้นที่") || rawName.includes("วัตถุต้องสงสัย") || hit.detection_type === "zone_entry" || hit.detection_type === "zone_uncertain";
+            const isLine = rawName.includes("ข้ามเส้น") || hit.detection_type === "line_cross";
+            const isPerson = rawName.includes("บุคคล") || rawName.toLowerCase().includes("person");
+            const isVehicle = rawName.startsWith("รถ") || rawName.startsWith("ยานพาหนะ");
+
+            if (filter === 'lpr') return isLpr;
+            if (filter === 'target') {
+                return isPlateTarget || (!isLpr && !isZone && !isLine && !isPerson && !isVehicle) || hit.is_target;
+            }
+            if (filter === 'person') return isPerson;
+            if (filter === 'zone') return isZone || isLine;
+            return true;
+        }
+
+        function renderLiveMatrixCard(hit) {
+            const rawName = (hit.name || "").trim();
+            const hitImgUrl = safeMediaUrl(hit.full_url || hit.img_url);
+            const plateImgUrl = safeMediaUrl(hit.plate_img_url);
+            const badgeHtml = hit.is_color_edited ? `<span class="color-badge-edited" style="font-size: 0.7rem;">✓ แก้ไขสี</span>` : '';
+
+            const isLprOnly = rawName.includes("[LPR]") || rawName.startsWith("LPR");
+            const isZoneAlert = rawName.includes("ในพื้นที่") || rawName.includes("วัตถุต้องสงสัย") || hit.detection_type === "zone_entry" || hit.detection_type === "zone_uncertain";
+            const isLineAlert = rawName.includes("ข้ามเส้น") || hit.detection_type === "line_cross";
+            const isGeneralPerson = rawName.includes("บุคคลทั่วไป") || rawName.toLowerCase().includes("person_");
+            const isUnknownFallback = rawName.toLowerCase().includes("unknown");
+            const isGeneralVehicle = rawName.startsWith("รถยนต์ทั่วไป") || rawName.startsWith("ยานพาหนะทั่วไป");
+            const isPlateTarget = rawName.includes("ทะเบียนเป้าหมาย") || rawName.includes("💳");
+
+            let targetBadge = '';
+            let isTarget = false;
+
+            if (isPlateTarget) {
+                isTarget = true;
+                targetBadge = `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; box-shadow: 0 0 8px rgba(245,158,11,0.35);"><i class="ri-id-card-fill"></i> เป้าหมายทะเบียน</span>`;
+            } else if (isZoneAlert) {
+                isTarget = true;
+                targetBadge = `<span style="background: linear-gradient(135deg, #a855f7, #ec4899); color: #ffffff; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; box-shadow: 0 0 8px rgba(236,72,153,0.4);"><i class="ri-map-pin-user-fill"></i> Zone</span>`;
+            } else if (isLineAlert) {
+                isTarget = true;
+                targetBadge = `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem;"><i class="ri-crosshair-line"></i> Line</span>`;
+            } else if (isGeneralPerson || isUnknownFallback) {
+                isTarget = true;
+                targetBadge = `<span style="background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #ffffff; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem;"><i class="ri-user-3-fill"></i> บุคคล</span>`;
+            } else if (isLprOnly) {
+                isTarget = false;
+                targetBadge = `<span style="background: #334155; color: #94a3b8; font-weight: 700; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem;"><i class="ri-font-size-2"></i> ป้ายทะเบียน</span>`;
+            } else if (isGeneralVehicle) {
+                isTarget = false;
+                targetBadge = `<span style="background: #334155; color: #94a3b8; font-weight: 700; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem;"><i class="ri-car-fill"></i> รถยนต์</span>`;
+            } else {
+                isTarget = true;
+                targetBadge = `<span style="background: linear-gradient(135deg, #ef4444, #f43f5e); color: #ffffff; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; box-shadow: 0 0 8px rgba(244,63,94,0.4);"><i class="ri-focus-3-fill"></i> TARGET</span>`;
+            }
+
+            const hitId = Number(hit.id) || 0;
+            const lprReviewHtml = renderLprReviewStatus(hit, true);
+
+            return `
+            <div class="live-matrix-card ${isTarget ? 'target-alert' : ''}" data-hit-id="${hitId}">
+                <div class="live-matrix-card-head">
+                    <div class="live-matrix-card-title">
+                        <span>${escapeHTML(hit.name)}</span>
+                        ${badgeHtml}
+                        ${targetBadge}
+                        <span style="font-size: 0.75rem; color: var(--primary); font-weight: 700;">(${Number(hit.confidence) || 0}%)</span>
+                        ${lprReviewHtml}
+                    </div>
+                    <span class="live-matrix-card-time"><i class="ri-time-line"></i> ${escapeHTML(formatHitListTime(hit))}</span>
+                </div>
+                <div class="live-matrix-media-wrap">
+                    <img src="${hitImgUrl}" alt="เหตุการณ์ ${escapeHTML(hit.name)}" class="main-img" onclick="openImageModalById(${hitId}, event)" title="คลิกเพื่อดูภาพขยาย">
+                    ${plateImgUrl ? `
+                    <div class="live-matrix-plate-badge">
+                        <span style="font-size: 0.65rem; color: #94a3b8; font-weight: 800; text-transform: uppercase;">Plate Crop</span>
+                        <img src="${plateImgUrl}" alt="Crop ป้ายทะเบียน">
+                        ${hit.license_plate ? `<span>${escapeHTML(hit.license_plate)}</span>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            </div>`;
+        }
+
+        function renderLiveMatrix() {
+            const grid = document.getElementById('live-matrix-grid');
+            const countEl = document.getElementById('live-matrix-count');
+            if (!grid) return;
+
+            const items = (currentAlertsData || []).filter(hit => matchesMatrixFilter(hit, matrixActiveFilter));
+
+            if (countEl) {
+                countEl.textContent = `${items.length} รายการ`;
+            }
+
+            if (items.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 0.95rem;">
+                        <i class="ri-inbox-line" style="font-size: 2.2rem; display: block; margin-bottom: 8px; opacity: 0.6;"></i>
+                        ไม่พบรายการตรวจจับในหมวดหมู่นี้
+                    </div>`;
+                return;
+            }
+
+            grid.innerHTML = items.map(renderLiveMatrixCard).join('');
+        }
+
+        // Global Escape key listener to close Live Matrix Modal
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isLiveMatrixModalOpen()) {
+                closeLiveHitMatrixModal();
+            }
+        });
 
         function switchModalTab(tab) {
             if(tab === 'person') {
@@ -1911,7 +2962,7 @@
 
             let countdown = 5;
             showToast(`📸 กรุณาเปิดหน้าต่างเป้าหมายรอไว้ ระบบจะถ่ายภาพในอีก ${countdown} วินาที...`, "#f59e0b");
-            
+
             const timer = setInterval(() => {
                 countdown--;
                 if (countdown > 0) {
@@ -1919,7 +2970,7 @@
                 } else {
                     clearInterval(timer);
                     showToast("📸 แชะ! ถ่ายภาพหน้าจอแล้ว กลับมาลากกรอบได้เลย", "#14a37f");
-                    
+
                     document.getElementById("cropScreenModal").style.display = "flex";
                     // Add delay to ensure backend has captured the frame we want
                     setTimeout(() => {
@@ -1939,7 +2990,7 @@
                 showToast("⚠️ กรุณาลากกรอบเลือกพื้นที่ก่อน", "#f59e0b");
                 return;
             }
-            
+
             const rect = cropContainer.getBoundingClientRect();
             const leftPct = parseFloat(cropBox.style.left) / rect.width;
             const topPct = parseFloat(cropBox.style.top) / rect.height;
@@ -1983,7 +3034,7 @@
             } catch (e) {}
         }
 
-        
+
         // Detection Zone Logic
         const zoneCanvas = document.getElementById('zone-canvas');
         const zoneCtx = zoneCanvas.getContext('2d');
@@ -2022,11 +3073,11 @@
             if (currentZoneMode === 'line' && zonePoints.length >= 2) {
                 zonePoints = [];
             }
-            
+
             const rect = zoneCanvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            
+
             // Convert to normalized coordinates
             zonePoints.push({
                 x: x / zoneCanvas.width,
@@ -2041,11 +3092,11 @@
 
             zoneCtx.beginPath();
             zoneCtx.moveTo(zonePoints[0].x * zoneCanvas.width, zonePoints[0].y * zoneCanvas.height);
-            
+
             for (let i = 1; i < zonePoints.length; i++) {
                 zoneCtx.lineTo(zonePoints[i].x * zoneCanvas.width, zonePoints[i].y * zoneCanvas.height);
             }
-            
+
             if (currentZoneMode === 'zone' && zonePoints.length > 2) {
                 zoneCtx.closePath();
                 zoneCtx.fillStyle = 'rgba(0, 255, 255, 0.2)';
@@ -2084,6 +3135,7 @@
         async function confirmZone() {
             try {
                 let res, data;
+                const camId = activeCameraId || (typeof selectedCamera !== 'undefined' && selectedCamera ? selectedCamera.id : null);
                 if (currentZoneMode === 'zone') {
                     if (zonePoints.length < 3) {
                         showToast("⚠️ กรุณาคลิกเลือกจุดอย่างน้อย 3 จุดขึ้นไป", "#f59e0b");
@@ -2092,9 +3144,9 @@
                     res = await fetch(`${API_URL}/set_detection_zone`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ points: zonePoints })
+                        body: JSON.stringify({ points: zonePoints, camera_id: camId })
                     });
-                    await fetch(`${API_URL}/set_crossing_line`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reset: true }) });
+                    await fetch(`${API_URL}/set_crossing_line`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reset: true, camera_id: camId }) });
                 } else {
                     if (zonePoints.length !== 2) {
                         showToast("⚠️ กรุณาคลิกลากเส้น 2 จุด", "#f59e0b");
@@ -2104,9 +3156,9 @@
                     res = await fetch(`${API_URL}/set_crossing_line`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ points: zonePoints, direction: direction })
+                        body: JSON.stringify({ points: zonePoints, direction: direction, camera_id: camId })
                     });
-                    await fetch(`${API_URL}/set_detection_zone`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reset: true }) });
+                    await fetch(`${API_URL}/set_detection_zone`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reset: true, camera_id: camId }) });
                 }
 
                 data = await res.json();
@@ -2123,15 +3175,16 @@
 
         async function resetZone() {
             try {
+                const camId = activeCameraId || (typeof selectedCamera !== 'undefined' && selectedCamera ? selectedCamera.id : null);
                 await fetch(`${API_URL}/set_detection_zone`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ reset: true })
+                    body: JSON.stringify({ reset: true, camera_id: camId })
                 });
                 const res = await fetch(`${API_URL}/set_crossing_line`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ reset: true })
+                    body: JSON.stringify({ reset: true, camera_id: camId })
                 });
                 const data = await res.json();
                 if(data.status === 'success') {
@@ -2171,7 +3224,7 @@
             flex-wrap: wrap;
             padding: 18px 24px;
         }
-        
+
         .hit-item {
             padding: 14px 14px 4px 14px !important;
             gap: 10px !important;
@@ -2190,8 +3243,72 @@
         }
 
 
-        @media (max-width: 1000px) {
+        /* Hit List Responsive Layout */
+        .hitlist-sidebar-wrap {
+            position: relative;
+            height: 100%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hitlist-card {
+            border-color: rgba(244, 63, 94, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .hitlist-scroll-area {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        @media (min-width: 1101px) {
+            .hitlist-sidebar-wrap {
+                position: relative;
+                height: 100%;
+            }
+            .hitlist-card {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                right: 0;
+            }
+        }
+
+        @media (max-width: 1100px) {
             .grid { grid-template-columns: 1fr !important; }
+            .hitlist-sidebar-wrap {
+                position: static !important;
+                height: auto !important;
+                min-height: 480px !important;
+                margin-top: 14px !important;
+                margin-bottom: 40px !important;
+            }
+            .hitlist-card {
+                position: relative !important;
+                top: auto !important;
+                bottom: auto !important;
+                left: auto !important;
+                right: auto !important;
+                height: auto !important;
+                min-height: 480px !important;
+                max-height: 82vh !important;
+                overflow: hidden !important;
+            }
+            .hitlist-scroll-area {
+                min-height: 380px !important;
+                max-height: calc(82vh - 90px) !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
         }
     </style>
 </body>

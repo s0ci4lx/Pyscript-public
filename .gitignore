@@ -41,3 +41,6 @@ vehicle_targets/
 # Pretrained Weights (Auto-downloaded by Ultralytics / OpenCV on first run)
 # Uncomment below if you do not want to push .pt weights to git
 # *.pt
+
+# Local release packages
+dist/

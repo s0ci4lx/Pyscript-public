@@ -1,0 +1,23 @@
+/* Hallmark · Operate / Workbench · restrained monitoring palette */
+:root {
+  --color-console-bg: #141719;
+  --color-console-panel: #1c2023;
+  --color-console-raised: #252a2e;
+  --color-console-rule: #3a4248;
+  --color-console-ink: #edf0f2;
+  --color-console-muted: #b0b9c0;
+  --color-console-accent: #8bc7b2;
+  --color-console-accent-ink: #10271e;
+  --font-console: 'Sarabun', sans-serif;
+  --radius-console: 5px;
+}
+[data-theme="light"] {
+  --color-console-bg: #f1f3f2;
+  --color-console-panel: #ffffff;
+  --color-console-raised: #e8edeb;
+  --color-console-rule: #c4cfca;
+  --color-console-ink: #202b26;
+  --color-console-muted: #52645b;
+  --color-console-accent: #246b50;
+  --color-console-accent-ink: #ffffff;
+}

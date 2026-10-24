@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ตั้งค่ากล้อง CCTV</title>
     <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="theme.js"></script>
     <style>
         .settings-container {
             max-width: 800px;
@@ -40,23 +42,46 @@
 
         #telegram_bot_token {
             width: 100%;
-            padding: 12px 14px;
+            padding: 8px 12px;
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
             background: var(--surface);
             color: var(--text-main);
             font-family: var(--font-body);
-            font-size: 1rem;
+            font-size: 0.82rem;
             line-height: 1.5;
             display: block;
         }
+        #satun-picker { margin: auto; width: min(960px, 94vw); height: min(820px, 90dvh); max-height: 90dvh; padding: 0; border: 1px solid var(--border); border-radius: 18px; background: #101827; color: var(--text-main, #eef2ff); }
+        #satun-picker[open] { display: flex; flex-direction: column; }
+        #satun-picker::backdrop { background: rgb(0 0 0 / .72); }
+        .satun-head, .satun-footer { display: flex; align-items: center; gap: 12px; padding: 18px 24px; flex-wrap: wrap; }
+        .satun-head { justify-content: space-between; border-bottom: 1px solid var(--border); }
+        .satun-head h2, .satun-head p { margin: 0; }
+        .satun-head p { margin-top: 6px; color: var(--text-muted); }
+        .satun-tools { padding: 16px 24px; }
+        .satun-tools input { width: 100%; margin: 6px 0 12px; padding: 12px; border: 1px solid #475569; border-radius: 8px; background: #0b1220; color: #eef2ff; }
+        .satun-filters, .satun-selection { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .satun-filters [aria-pressed="true"] { background: #087ca6; color: white; }
+        .satun-camera-list { flex: 1; padding: 12px 24px; overflow-y: auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        .satun-camera { display: flex; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--surface-2, #172033); }
+        .satun-camera:has(input:checked) { border-color: #38bdf8; background: #102b40; }
+        .satun-camera input { width: 18px; height: 18px; flex-shrink: 0; accent-color: #0ea5e9; margin: 2px 0; }
+        .satun-camera small, .satun-camera strong { display: block; overflow-wrap: anywhere; }
+        .satun-camera small { color: #7dd3fc; margin-bottom: 8px; }
+        .satun-footer { border-top: 1px solid var(--border); }
+        #satun-count { margin-right: auto; }
+        #satun-dialog-status { padding: 0 24px; margin: 0; }
+        #satun-picker :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+        @media(max-width: 760px) { .satun-camera-list { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+        @media(max-width: 480px) { .satun-camera-list { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div id="toast" class="toast">Notification Message</div>
 
     <!-- Navbar -->
-    
+
     <div class="browser-window">
         <div class="browser-header">
             <div class="mac-dots">
@@ -70,33 +95,41 @@
         </div>
         <div class="browser-content">
 <nav class="navbar">
-        <a href="index.html" class="nav-logo">AI <span>CCTV</span></a>
+        <a href="index.html" class="nav-logo"><i class="ri-radar-line"></i> AI <span>CCTV</span></a>
         <div class="nav-links">
-            <a href="index.html" class="nav-link">🏠 หน้าหลัก (Live)</a>
-            <a href="history.html" class="nav-link">🕒 ประวัติการตรวจจับ</a>
+            <a href="index.html" class="nav-link"><i class="ri-home-4-line"></i> หน้าหลัก (Live)</a>
+            <a href="live_hits.html" class="nav-link" target="_blank" title="เปิดหน้าต่างมอนิเตอร์สดจอแยก (Live Wall)"><i class="ri-tv-2-line"></i> จอมอนิเตอร์สด (Wall) ↗</a>
+            <a href="history.html" class="nav-link"><i class="ri-history-line"></i> ประวัติการตรวจจับ</a>
             <div class="nav-dropdown">
-                <span class="nav-link active">⚙️ จัดการระบบ ▾</span>
+                <span class="nav-link active"><i class="ri-settings-4-line"></i> จัดการระบบ <i class="ri-arrow-down-s-line"></i></span>
                 <div class="dropdown-content">
-                    <a href="targets.html" class="dropdown-item">👥 จัดการเป้าหมาย</a>
-                    <a href="settings.html" class="dropdown-item active">⚙️ ตั้งค่าระบบและกล้อง</a>
+                    <a href="targets.html" class="dropdown-item"><i class="ri-user-search-line"></i> จัดการเป้าหมาย</a>
+                    <a href="settings.html" class="dropdown-item active"><i class="ri-sound-module-line"></i> ตั้งค่าระบบและกล้อง</a>
                 </div>
             </div>
+            <button type="button" class="theme-toggle-btn" onclick="toggleAppTheme()" id="theme-toggle-btn" title="สลับธีม สว่าง / มืด" aria-label="สลับธีม สว่าง / มืด">
+                <span class="theme-toggle-track">
+                    <i class="ri-sun-fill theme-icon-sun"></i>
+                    <i class="ri-moon-fill theme-icon-moon"></i>
+                    <span class="theme-toggle-thumb"></span>
+                </span>
+            </button>
         </div>
     </nav>
 
     <header class="hero">
-        <h1>ตั้งค่า<span>ระบบและกล้อง</span></h1>
+        <h1><i class="ri-settings-4-line"></i> ตั้งค่า<span>ระบบและกล้อง</span></h1>
         <p>เพิ่มกล้อง อัปโหลดวิดีโอ และปรับแต่งการทำงานของระบบ</p>
     </header>
 
     <main class="container settings-container">
-    
+
         <div class="glass-card">
-            <h2><span class="section-icon">🧠</span> โมเดล AI (YOLO Model)</h2>
+            <h2><span class="section-icon"><i class="ri-cpu-line"></i></span> โมเดล AI (YOLO Model)</h2>
             <p>เลือกขนาดโมเดลที่ต้องการใช้งาน (มีผลต่อความแม่นยำและความเร็ว)</p>
             <div class="form-group" style="margin-top: 16px;">
                 <label>เลือกโมเดล (มีผลทันที)</label>
-                <select id="yolo-model-select" onchange="changeYoloModel()" style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 15px; background: white; margin-top: 8px;">
+                <select id="yolo-model-select" onchange="changeYoloModel()" style="width: 100%; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.82rem; background: white; margin-top: 8px;">
                     <option value="yolov8n.pt">yolov8n.pt (Nano - รวดเร็วสุด เหมาะกับกล้องหลายตัว)</option>
                     <option value="yolov8s.pt">yolov8s.pt (Small - แม่นยำปานกลาง แนะนำ)</option>
                     <option value="yolov8m.pt">yolov8m.pt (Medium - แม่นยำสูง กินสเปค)</option>
@@ -106,8 +139,12 @@
         </div>
 
         <div class="glass-card">
-            <h2><span class="section-icon">➕</span> เพิ่มกล้องใหม่</h2>
+            <h2><span class="section-icon"><i class="ri-cctv-line"></i></span> เพิ่มกล้องใหม่</h2>
             <p>รองรับกล้อง RTSP และ Webcam</p>
+            <div class="form-group">
+                <button type="button" class="btn btn-primary" onclick="loadSatunCameras()">เลือกกล้องจากระบบสตูล</button>
+                <p id="satun-status" role="status"></p>
+            </div>
             <form id="add-camera-form" onsubmit="addCamera(event)">
                 <div class="form-group">
                     <label>ชื่อกล้อง (เช่น CCTV หน้าบ้าน)</label>
@@ -115,32 +152,32 @@
                 </div>
                 <div class="form-group">
                     <label>RTSP URL (หรือใส่ 0 สำหรับ Webcam)</label>
-                    <input type="text" id="cam_url" required placeholder="rtsp://username:password@camera-ip:554/...">
+                    <input type="text" id="cam_url" required placeholder="rtsp://admin:pass@ip:port/...">
                 </div>
-                <button type="submit" class="btn btn-primary">บันทึกกล้อง</button>
+                <button type="submit" class="btn btn-primary"><i class="ri-save-line"></i> บันทึกกล้อง</button>
             </form>
         </div>
 
         <div class="glass-card">
-            <h2><span class="section-icon">📹</span> อัปโหลดไฟล์วิดีโอเพื่อประมวลผล</h2>
+            <h2><span class="section-icon"><i class="ri-video-upload-line"></i></span> อัปโหลดไฟล์วิดีโอเพื่อประมวลผล</h2>
             <p>รองรับไฟล์ .mp4, .avi, .mkv</p>
             <form id="upload-video-form" onsubmit="uploadVideo(event)">
                 <div class="form-group">
                     <input type="file" id="video_file" accept="video/*" required>
                 </div>
-                <button type="submit" class="btn btn-primary" id="btn-upload">อัปโหลดวิดีโอ</button>
+                <button type="submit" class="btn btn-primary" id="btn-upload"><i class="ri-upload-cloud-line"></i> อัปโหลดวิดีโอ</button>
             </form>
         </div>
 
         <div class="glass-card">
-            <h2><span class="section-icon red">🔴</span> ประมวลผลจากลิงก์ YouTube</h2>
+            <h2><span class="section-icon red"><i class="ri-youtube-line"></i></span> ประมวลผลจากลิงก์ YouTube</h2>
             <p>ดึงภาพสตรีมจากวิดีโอหรือไลฟ์ YouTube มาประมวลผล</p>
             <form id="youtube-form" onsubmit="addYouTubeCamera(event)">
                 <div class="form-group">
                     <label>ใส่ลิงก์ YouTube</label>
                     <input type="url" id="youtube_url" required placeholder="https://www.youtube.com/watch?v=...">
                 </div>
-                <button type="submit" class="btn btn-danger" id="btn-yt">เริ่มสตรีม YouTube</button>
+                <button type="submit" class="btn btn-danger" id="btn-yt"><i class="ri-play-circle-line"></i> เริ่มสตรีม YouTube</button>
             </form>
         </div>
 
@@ -154,9 +191,29 @@
 
         <div class="glass-card">
             <h2><span class="section-icon orange">⚙️</span> ตั้งค่าระบบทั่วไป</h2>
-            <p>ปรับพฤติกรรมการบันทึกข้อมูลของระบบ</p>
+            <p>ปรับพฤติกรรมการบันทึกข้อมูลและเงื่อนไขการตรวจจับของระบบ</p>
             <div class="form-group">
-                <label>การบันทึกภาพบุคคลทั่วไป (Unknown)</label>
+                <label>การตรวจจับบุคคล (ใครก็ได้)</label>
+                <select id="detect_any_person" onchange="updateSystemSettings()">
+                    <option value="true">ตรวจจับบุคคลทุกคนที่พบ (ทั้งจอ หรือในพื้นที่ตรวจจับ) และแสดงที่เป้าหมายที่พบ</option>
+                    <option value="false">ตรวจจับเฉพาะบุคคลที่มีใบหน้าตรงกับเป้าหมายที่ลงทะเบียนเท่านั้น</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>การตรวจจับยานพาหนะในพื้นที่ (รถยนต์/มอเตอร์ไซค์/จักรยาน)</label>
+                <select id="detect_any_vehicle_zone" onchange="updateSystemSettings()">
+                    <option value="true">ตรวจจับและแจ้งเตือนยานพาหนะทุกคันที่เข้ามาในพื้นที่กำหนด (Zone)</option>
+                    <option value="false">ตรวจจับเฉพาะยานพาหนะเป้าหมายหรือป้ายทะเบียนที่ลงทะเบียนไว้เท่านั้น</option>
+                </select>
+                <small style="color: #8fa0b5; display: block; margin-top: 4px;">ครอบคลุมรถยนต์, รถกระบะ, มอเตอร์ไซค์, จักรยาน และรถบัส ที่เข้ามาในเขตพื้นที่เฝ้าระวัง</small>
+            </div>
+            <div class="form-group">
+                <label>เกณฑ์ความมั่นใจขั้นต่ำสำหรับการระบุประเภทในพื้นที่ (Uncertainty Threshold %)</label>
+                <input type="number" id="zone_uncertain_confidence_threshold" min="20" max="80" value="40" onchange="updateSystemSettings()" style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main);">
+                <small style="color: #8fa0b5; display: block; margin-top: 4px;">หาก AI ตรวจพบในพื้นที่แต่ความมั่นใจต่ำกว่าค่านี้ (เช่น เห็นแต่ข้างหลัง/มุมก้ม) จะแจ้งเตือนล่วงหน้าว่า "⚠️ ตรวจพบวัตถุ/ความเคลื่อนไหวในเขตกำหนด"</small>
+            </div>
+            <div class="form-group">
+                <label>การบันทึกภาพบุคคลทั่วไป (Unknown Faces)</label>
                 <select id="save_unknown_faces" onchange="updateSystemSettings()">
                     <option value="true">บันทึกภาพและประวัติบุคคลทั่วไป (ใช้พื้นที่เยอะ)</option>
                     <option value="false">ไม่บันทึกภาพบุคคลทั่วไป (บันทึกเฉพาะเป้าหมาย)</option>
@@ -174,7 +231,7 @@
         <div class="glass-card" style="border: 1px solid rgba(0, 136, 204, 0.35); background: linear-gradient(180deg, rgba(16, 26, 40, 0.75) 0%, rgba(12, 18, 28, 0.75) 100%);">
             <h2><span class="section-icon" style="color: #00a8ff;">✈️</span> ตั้งค่าการแจ้งเตือน Telegram (Telegram Alert)</h2>
             <p>ส่งภาพเปรียบเทียบ (ภาพเป้าหมาย vs ภาพตรวจพบสด) พร้อมระบุ % ความเหมือน และชื่อเป้าหมายไปยัง Telegram ทันที</p>
-            
+
             <form id="telegram-form" onsubmit="saveTelegramSettings(event)">
                 <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
                     <label style="margin: 0; font-weight: 600; cursor: pointer;" for="telegram_enabled">เปิดใช้งานการแจ้งเตือน Telegram</label>
@@ -195,8 +252,24 @@
 
                 <div class="form-group">
                     <label>หน่วงเวลาไม่ให้ส่งแจ้งเตือนซ้ำ (Cooldown วินาที)</label>
-                    <input type="number" id="telegram_cooldown" min="5" max="3600" value="30">
-                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">ป้องกันไม่ให้บอทส่งข้อความรัวเกินไปเมื่อเป้าหมายยังอยู่ในเฟรม (แนะนำ 30 - 60 วินาที)</small>
+                    <input type="number" id="telegram_cooldown" min="1" max="3600" value="5">
+                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">ระยะเวลาหน่วงระหว่างการแจ้งเตือนแต่ละครั้ง เช่น 5 วินาที จะทำให้ได้รับภาพหลายมุมเมื่อตรวจพบเป้าหมายต่อเนื่องใน Hitlist (ปรับได้ตั้งแต่ 1 วินาทีขึ้นไป แนะนำ 3 - 10 วินาที)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="telegram_min_confidence">ความมั่นใจขั้นต่ำก่อนแจ้งเตือน Telegram (%)</label>
+                    <input type="number" id="telegram_min_confidence" name="telegram_min_confidence" min="1" max="99" value="50" inputmode="numeric" aria-describedby="telegram-min-confidence-help" required>
+                    <small id="telegram-min-confidence-help" style="color: #8fa0b5; display: block; margin-top: 4px;">ระบบจะไม่ส่ง Telegram เมื่อ AI มั่นใจต่ำกว่าค่านี้ เพื่อลดการแจ้งเตือนผิดจากเงา แสง หรือวัตถุที่คล้ายคน (แนะนำอย่างน้อย 50%)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="telegram_person_image_mode">🖼️ รูปแบบภาพแจ้งเตือน Telegram (Image Alert Mode)</label>
+                    <select id="telegram_person_image_mode" name="telegram_person_image_mode">
+                        <option value="crop">ภาพการ์ดสรุป/ซูมเป้าหมายเท่านั้น (1 ภาพ)</option>
+                        <option value="album" selected>ภาพการ์ดสรุป + ภาพมุมกว้างเต็มจอ (2 ภาพ แนะนำแบบอัลบั้ม)</option>
+                        <option value="wide">ภาพมุมกว้างเต็มจอเท่านั้น (1 ภาพ)</option>
+                    </select>
+                    <small style="color: #8fa0b5; display: block; margin-top: 4px;">โหมดสองภาพจะส่งเป็นอัลบั้มคู่ (ภาพการ์ดตรวจจับ + ภาพมุมกว้างกล้อง) ในข้อความเดียวกัน</small>
                 </div>
 
                 <div class="form-group" style="background: rgba(0,0,0,0.2); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
@@ -209,20 +282,23 @@
                             <input type="checkbox" id="telegram_notify_vehicles" checked style="accent-color: #0088cc;"> 🚗 ยานพาหนะเป้าหมาย
                         </label>
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem;">
-                            <input type="checkbox" id="telegram_notify_plates" checked style="accent-color: #0088cc;"> 🔤 ป้ายทะเบียนเป้าหมาย
+                            <input type="checkbox" id="telegram_notify_plates" checked style="accent-color: #0088cc;"> <i class="ri-id-card-line"></i> ป้ายทะเบียนเป้าหมาย
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem;">
+                            <input type="checkbox" id="telegram_notify_zone" checked style="accent-color: #0088cc;"> ⚠️ วัตถุ/ผู้บุกรุกในพื้นที่ (Zone Intrusion)
                         </label>
                     </div>
                 </div>
 
                 <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
-                    <button type="submit" class="btn btn-primary" style="flex: 1; min-width: 200px; background: #0088cc; border: none;">💾 บันทึกการตั้งค่า Telegram</button>
-                    <button type="button" class="btn" onclick="testTelegram()" style="background: rgba(0, 136, 204, 0.2); color: #00a8ff; border: 1px solid rgba(0, 136, 204, 0.4);">🧪 ส่งข้อความทดสอบ</button>
+                    <button type="submit" class="btn btn-primary" style="flex: 1; min-width: 200px; background: #0088cc; border: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;"><i class="ri-save-line"></i> บันทึกการตั้งค่า Telegram</button>
+                    <button type="button" class="btn" onclick="testTelegram()" style="background: rgba(0, 136, 204, 0.2); color: #00a8ff; border: 1px solid rgba(0, 136, 204, 0.4); display: inline-flex; align-items: center; justify-content: center; gap: 6px;"><i class="ri-send-plane-fill"></i> ส่งข้อความทดสอบ</button>
                 </div>
             </form>
         </div>
 
         <div class="glass-card">
-            <h2><span class="section-icon">📋</span> รายการกล้องในระบบ</h2>
+            <h2><i class="ri-list-check-2" style="color: var(--primary); margin-right: 6px;"></i> รายการกล้องในระบบ</h2>
             <table class="camera-table">
                 <thead>
                     <tr>
@@ -242,18 +318,20 @@
             </div>
     </div>
 
+    <dialog id="satun-picker" aria-labelledby="satun-title">
+        <header class="satun-head"><div><h2 id="satun-title">เลือกกล้องสตูล</h2><p>เลือกได้หลายกล้องเพื่อเพิ่มเข้าระบบ</p></div><button type="button" class="btn" aria-label="ปิดหน้าต่างเลือกกล้อง" onclick="closeSatunPicker()">×</button></header>
+        <div class="satun-tools">
+            <label for="satun-search">ค้นหาชื่อกล้อง รหัส หรือช่องสัญญาณ</label>
+            <input id="satun-search" type="search" placeholder="เช่น ด่านในดง, 06011" oninput="renderSatunCameras()">
+            <div id="satun-filters" class="satun-filters" aria-label="กรองกล้อง"></div>
+            <div class="satun-selection"><button type="button" class="btn" onclick="selectSatunVisible()">เลือกทั้งหมดที่แสดง</button><button type="button" class="btn" onclick="satunSelected.clear();renderSatunCameras()">ล้างที่เลือก</button></div>
+        </div>
+        <p id="satun-dialog-status" role="status"></p>
+        <div id="satun-camera-list" class="satun-camera-list"></div>
+        <footer class="satun-footer"><span id="satun-count" role="status"></span><button type="button" class="btn" onclick="closeSatunPicker()">ยกเลิก</button><button id="satun-add-selected" type="button" class="btn btn-primary" disabled onclick="addSatunCamera()">เพิ่มกล้องที่เลือก</button></footer>
+    </dialog>
     <script>
         const API_URL = "http://localhost:8081";
-        const nativeFetch = window.fetch.bind(window);
-        window.fetch = (resource, options = {}) => {
-            const apiKey = localStorage.getItem('cctv_api_key') || '';
-            if (apiKey && options.method && options.method.toUpperCase() !== 'GET') {
-                const headers = new Headers(options.headers || {});
-                headers.set('X-API-Key', apiKey);
-                options = { ...options, headers };
-            }
-            return nativeFetch(resource, options);
-        };
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -278,14 +356,14 @@
             try {
                 await loadCameras();
                 await fetchSystemSettings();
-                
+
                 // Load YOLO model
                 const modelRes = await fetch(`${API_URL}/get_yolo_model`);
                 const modelData = await modelRes.json();
                 if(modelData && modelData.yolo_model) {
                     document.getElementById('yolo-model-select').value = modelData.yolo_model;
                 }
-                
+
             } catch (error) {
                 console.error("Error loading settings:", error);
             }
@@ -305,7 +383,7 @@
                         <td class="camera-url-cell">${escapeHTML(cam.url)}</td>
                         <td>
                             ${cam.id !== 'webcam'
-                                ? `<button class="btn btn-soft-danger btn-sm" data-camera-id="${escapeHTML(cam.id)}">🗑️ ลบ</button>`
+                                ? `<button class="btn btn-soft-danger btn-sm" data-camera-id="${escapeHTML(cam.id)}"><i class="ri-delete-bin-line"></i> ลบ</button>`
                                 : `<span class="muted" style="font-size: 0.85em;">ค่าเริ่มต้น</span>`
                             }
                         </td>
@@ -323,13 +401,13 @@
         async function changeYoloModel() {
             const select = document.getElementById('yolo-model-select');
             const newModel = select.value;
-            
+
             const formData = new FormData();
             formData.append("model_name", newModel);
-            
+
             showToast("⏳ กำลังโหลดโมเดลใหม่ โปรดรอสักครู่...", false);
             select.disabled = true;
-            
+
             try {
                 const response = await fetch(`${API_URL}/set_yolo_model`, {
                     method: 'POST',
@@ -345,6 +423,107 @@
                 showToast("❌ ขัดข้อง ไม่สามารถติดต่อ Backend", true);
             }
             select.disabled = false;
+        }
+
+        let satunCameras = [], satunSelected = new Set(), satunFilter = 'all', satunBusy = false;
+        function closeSatunPicker() {
+            if (!satunBusy) document.getElementById('satun-picker').close();
+        }
+        document.getElementById('satun-picker').addEventListener('cancel', event => {
+            if (satunBusy) event.preventDefault();
+        });
+        async function loadSatunCameras() {
+            const dialog = document.getElementById('satun-picker');
+            if (!dialog.open) dialog.showModal();
+            const status = document.getElementById('satun-dialog-status');
+            status.textContent = 'กำลังโหลดรายการกล้อง…';
+            satunSelected.clear(); satunFilter = 'all'; satunCameras = [];
+            document.getElementById('satun-search').value = '';
+            renderSatunCameras();
+            document.getElementById('satun-search').focus();
+            try {
+                const res = await fetch(API_URL + '/satun/cameras');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message);
+                satunCameras = data.cameras;
+                status.textContent = '';
+                renderSatunCameras();
+            } catch (err) { status.textContent = err.message + ' — ปิดหน้าต่างแล้วลองโหลดอีกครั้ง'; }
+        }
+        function filteredSatunCameras() {
+            const query = document.getElementById('satun-search').value.trim().toLocaleLowerCase();
+            return satunCameras.filter(c =>
+                (satunFilter === 'all' || (satunFilter === 'lpr' ? c.is_lpr : String(c.port) === satunFilter)) &&
+                [c.name, c.code, c.nvr, c.channel].join(' ').toLocaleLowerCase().includes(query));
+        }
+        function renderSatunCameras() {
+            const filters = document.getElementById('satun-filters');
+            filters.replaceChildren();
+            const groups = [['all', 'ทั้งหมด (' + satunCameras.length + ')'], ['lpr', 'กล้อง LPR']];
+            for (const port of [...new Set(satunCameras.map(c => c.port))])
+                groups.push([String(port), satunCameras.find(c => c.port === port).nvr + ' (' + satunCameras.filter(c => c.port === port).length + ')']);
+            for (const [value, label] of groups) {
+                const button = document.createElement('button');
+                button.type = 'button'; button.className = 'btn';
+                button.textContent = label; button.setAttribute('aria-pressed', String(satunFilter === value));
+                button.onclick = () => { satunFilter = value; renderSatunCameras(); };
+                filters.append(button);
+            }
+            const list = document.getElementById('satun-camera-list');
+            list.replaceChildren();
+            const visible = filteredSatunCameras();
+            for (const camera of visible) {
+                const label = document.createElement('label');
+                label.className = 'satun-camera';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox'; checkbox.checked = satunSelected.has(camera.id);
+                checkbox.disabled = satunBusy;
+                checkbox.setAttribute('aria-label', camera.name);
+                checkbox.onchange = () => {
+                    if (checkbox.checked) satunSelected.add(camera.id); else satunSelected.delete(camera.id);
+                    updateSatunCount();
+                };
+                const content = document.createElement('span');
+                const meta = document.createElement('small');
+                meta.textContent = camera.nvr + ' · CH ' + camera.channel + (camera.is_lpr ? ' · LPR' : '');
+                const name = document.createElement('strong'); name.textContent = camera.name;
+                content.append(meta, name); label.append(checkbox, content); list.append(label);
+            }
+            if (!visible.length) list.textContent = satunCameras.length ? 'ไม่พบกล้องตามตัวกรอง' : 'ยังไม่มีรายการกล้อง';
+            updateSatunCount();
+        }
+        function updateSatunCount() {
+            document.getElementById('satun-count').textContent = 'แสดง ' + filteredSatunCameras().length + ' กล้อง · เลือก ' + satunSelected.size + ' กล้อง';
+            const button = document.getElementById('satun-add-selected');
+            button.disabled = satunBusy || !satunSelected.size;
+            button.textContent = satunBusy ? 'กำลังเพิ่มกล้อง…' : 'เพิ่มกล้องที่เลือก (' + satunSelected.size + ')';
+        }
+        function selectSatunVisible() {
+            if (satunBusy) return;
+            filteredSatunCameras().forEach(c => satunSelected.add(c.id));
+            renderSatunCameras();
+        }
+        async function addSatunCamera() {
+            if (satunBusy || !satunSelected.size) return;
+            const selected = [...satunSelected];
+            satunBusy = true; renderSatunCameras();
+            const status = document.getElementById('satun-dialog-status');
+            let succeeded = 0;
+            for (const id of selected) {
+                status.textContent = 'กำลังเพิ่มกล้อง ' + (succeeded + 1) + ' / ' + selected.length;
+                try {
+                    const res = await fetch(API_URL + '/satun/cameras', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id})
+                    });
+                    if (!res.ok) throw new Error('เพิ่มไม่สำเร็จ');
+                    satunSelected.delete(id); succeeded++;
+                } catch (error) { /* Keep failed selections for retry. */ }
+            }
+            satunBusy = false; renderSatunCameras(); loadCameras();
+            const message = 'เพิ่มกล้องแล้ว ' + succeeded + ' กล้อง' + (satunSelected.size ? ' · ไม่สำเร็จ ' + satunSelected.size + ' กล้อง กรุณาลองอีกครั้ง' : ' ดูภาพและเริ่มประมวลผลที่หน้าหลัก');
+            status.textContent = message;
+            document.getElementById('satun-status').textContent = message;
+            if (!satunSelected.size) closeSatunPicker();
         }
 
         async function addCamera(e) {
@@ -456,7 +635,7 @@
                     body: formData
                 });
                 const data = await res.json();
-                
+
                 showToast("✅ เพิ่มกล้องหน้าจอสำเร็จ!");
                 loadCameras();
             } catch (err) {
@@ -485,9 +664,16 @@
             try {
                 const res = await fetch(`${API_URL}/system_settings`);
                 const data = await res.json();
+                document.getElementById("detect_any_person").value = data.detect_any_person !== false ? "true" : "false";
+                if (document.getElementById("detect_any_vehicle_zone")) {
+                    document.getElementById("detect_any_vehicle_zone").value = data.detect_any_vehicle_zone !== false ? "true" : "false";
+                }
+                if (document.getElementById("zone_uncertain_confidence_threshold")) {
+                    document.getElementById("zone_uncertain_confidence_threshold").value = data.zone_uncertain_confidence_threshold || 40;
+                }
                 document.getElementById("save_unknown_faces").value = data.save_unknown_faces ? "true" : "false";
                 document.getElementById("show_only_targets").value = data.show_only_targets ? "true" : "false";
-                
+
                 // Telegram Settings
                 if (document.getElementById("telegram_enabled")) {
                     document.getElementById("telegram_enabled").checked = Boolean(data.telegram_enabled);
@@ -497,10 +683,15 @@
                         ? `บันทึก token แล้ว (${data.telegram_bot_token_masked || "ซ่อนค่า"}) - กรอกใหม่เมื่อต้องการเปลี่ยน`
                         : "เช่น 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ";
                     document.getElementById("telegram_chat_id").value = data.telegram_chat_id || "";
-                    document.getElementById("telegram_cooldown").value = data.telegram_cooldown || 30;
+                    document.getElementById("telegram_cooldown").value = data.telegram_cooldown !== undefined ? data.telegram_cooldown : 5;
+                    document.getElementById("telegram_min_confidence").value = data.telegram_min_confidence !== undefined ? data.telegram_min_confidence : 50;
                     document.getElementById("telegram_notify_faces").checked = data.telegram_notify_faces !== false;
                     document.getElementById("telegram_notify_vehicles").checked = data.telegram_notify_vehicles !== false;
                     document.getElementById("telegram_notify_plates").checked = data.telegram_notify_plates !== false;
+                    if (document.getElementById("telegram_notify_zone")) {
+                        document.getElementById("telegram_notify_zone").checked = data.telegram_notify_zone !== false;
+                    }
+                    document.getElementById("telegram_person_image_mode").value = data.telegram_person_image_mode || "album";
                 }
             } catch (e) {
                 console.error(e);
@@ -508,6 +699,9 @@
         }
 
         async function updateSystemSettings() {
+            const detectAnyPerson = document.getElementById("detect_any_person").value === "true";
+            const detectAnyVehicleZone = document.getElementById("detect_any_vehicle_zone") ? document.getElementById("detect_any_vehicle_zone").value === "true" : true;
+            const zoneThreshold = document.getElementById("zone_uncertain_confidence_threshold") ? parseInt(document.getElementById("zone_uncertain_confidence_threshold").value) || 40 : 40;
             const val = document.getElementById("save_unknown_faces").value === "true";
             const showOnlyTargets = document.getElementById("show_only_targets").value === "true";
             try {
@@ -515,6 +709,9 @@
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
+                        detect_any_person: detectAnyPerson,
+                        detect_any_vehicle_zone: detectAnyVehicleZone,
+                        zone_uncertain_confidence_threshold: zoneThreshold,
                         save_unknown_faces: val,
                         show_only_targets: showOnlyTargets
                     })
@@ -535,19 +732,25 @@
             const enabled = document.getElementById("telegram_enabled").checked;
             const botToken = document.getElementById("telegram_bot_token").value.trim();
             const chatId = document.getElementById("telegram_chat_id").value.trim();
-            const cooldown = parseInt(document.getElementById("telegram_cooldown").value) || 30;
+            const cooldown = parseInt(document.getElementById("telegram_cooldown").value) || 5;
+            const minConfidence = parseInt(document.getElementById("telegram_min_confidence").value) || 50;
             const notifyFaces = document.getElementById("telegram_notify_faces").checked;
             const notifyVehicles = document.getElementById("telegram_notify_vehicles").checked;
             const notifyPlates = document.getElementById("telegram_notify_plates").checked;
+            const notifyZone = document.getElementById("telegram_notify_zone") ? document.getElementById("telegram_notify_zone").checked : true;
+            const personImageMode = document.getElementById("telegram_person_image_mode").value;
 
             try {
                 const payload = {
                     telegram_enabled: enabled,
                     telegram_chat_id: chatId,
                     telegram_cooldown: cooldown,
+                    telegram_min_confidence: minConfidence,
                     telegram_notify_faces: notifyFaces,
                     telegram_notify_vehicles: notifyVehicles,
-                    telegram_notify_plates: notifyPlates
+                    telegram_notify_plates: notifyPlates,
+                    telegram_notify_zone: notifyZone,
+                    telegram_person_image_mode: personImageMode
                 };
                 if (botToken) {
                     payload.telegram_bot_token = botToken;

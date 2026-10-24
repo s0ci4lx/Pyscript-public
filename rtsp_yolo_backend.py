@@ -11,9 +11,25 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from ultralytics import YOLO
-import face_recognition
+from optional_face import load_face_backend
+face_recognition, FACE_AVAILABLE = load_face_backend()
 import threading
 import torch
+from functools import wraps
+
+# face_recognition shares native dlib detector/encoder instances across all
+# cameras and enrollment requests. Never enter those objects concurrently.
+face_native_lock = threading.RLock()
+
+def serialized_face_call(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        with face_native_lock:
+            return function(*args, **kwargs)
+    return call
+
+safe_face_locations = serialized_face_call(face_recognition.face_locations)
+safe_face_encodings = serialized_face_call(face_recognition.face_encodings)
 
 if torch.cuda.is_available():
     DEVICE = "0"
@@ -25,9 +41,28 @@ print(f"🔥 [Backend] Using acceleration device: {DEVICE}")
 import json
 import re
 import sqlite3
+import zipfile
+import io
+import csv
+import queue
 import urllib.parse
 import yt_dlp
 import mss
+from contextlib import nullcontext
+from security_utils import atomic_write_json, is_loopback_host, protect_private_file, redact_source_url
+from lpr_utils import (
+    plate_matches_target,
+    expanded_plate_bbox,
+    lpr_consensus,
+    lpr_frame_quality_score,
+    lpr_plate_key,
+    lpr_review_status,
+    normalize_thai_plate_digits,
+    prepare_lpr_ocr_images,
+)
+from stream_utils import JpegFrameCache, video_catchup_frames, LatestFrameCapture
+from lpr_pipeline import LprPipeline, ACTIVE
+from lpr_utils import plate_read_kind
 try:
     from sklearn.neighbors import KNeighborsClassifier
 except ImportError:
@@ -55,7 +90,7 @@ def train_color_model():
             cursor = conn.cursor()
             cursor.execute("SELECT h, s, v, correct_color FROM color_training")
             rows = cursor.fetchall()
-            
+
             if len(rows) >= 3:
                 X = [[r[0], r[1], r[2]] for r in rows]
                 y = [r[3] for r in rows]
@@ -84,7 +119,10 @@ def init_db():
                 full_url TEXT,
                 is_color_edited INTEGER DEFAULT 0,
                 plate_img_url TEXT,
-                license_plate TEXT
+                license_plate TEXT,
+                lpr_status TEXT,
+                lpr_initial_plate TEXT,
+                lpr_sample_count INTEGER DEFAULT 0
             )
         ''')
         cursor.execute('''
@@ -100,8 +138,8 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_timestamp ON hits(timestamp DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_name ON hits(name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_camera_url ON hits(camera_url)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_license_plate ON hits(license_plate)")
-        
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_camera_id_desc ON hits(camera_url, id DESC)")
+
         # DB Migration: Check if is_color_edited exists and add it if not
         cursor.execute("PRAGMA table_info(hits)")
         columns = [col[1] for col in cursor.fetchall()]
@@ -111,7 +149,21 @@ def init_db():
             cursor.execute("ALTER TABLE hits ADD COLUMN plate_img_url TEXT")
         if 'license_plate' not in columns:
             cursor.execute("ALTER TABLE hits ADD COLUMN license_plate TEXT")
+        if 'lpr_status' not in columns:
+            cursor.execute("ALTER TABLE hits ADD COLUMN lpr_status TEXT")
+        if 'lpr_initial_plate' not in columns:
+            cursor.execute("ALTER TABLE hits ADD COLUMN lpr_initial_plate TEXT")
+        if 'lpr_sample_count' not in columns:
+            cursor.execute("ALTER TABLE hits ADD COLUMN lpr_sample_count INTEGER DEFAULT 0")
+        if 'lpr_reason' not in columns:
+            cursor.execute("ALTER TABLE hits ADD COLUMN lpr_reason TEXT DEFAULT ''")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hits_license_plate ON hits(license_plate)")
+        # Clean up legacy unreadable spam rows that polluted the history
+        cursor.execute("DELETE FROM hits WHERE lpr_status = 'unreadable' OR (COALESCE(license_plate, '') = '' AND lpr_status IN ('pending', 'queued', 'reading'))")
+        cursor.execute("UPDATE hits SET lpr_status='partial', lpr_reason='legacy_partial' WHERE lpr_status='verified' AND license_plate NOT LIKE '%-%' AND license_plate GLOB '[0-9]*' AND license_plate NOT GLOB '*[ก-ฮ]*'")
+        cursor.execute("UPDATE hits SET lpr_status='uncertain', lpr_reason='legacy_single_frame' WHERE lpr_status='verified' AND COALESCE(lpr_sample_count,0)<3")
         conn.commit()
+    protect_private_file(DB_FILE)
 
 init_db()
 
@@ -160,13 +212,13 @@ MAX_MULTI_IMAGE_UPLOAD_BYTES = int(os.getenv("CCTV_MAX_MULTI_IMAGE_UPLOAD_MB", "
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
+        protect_private_file(CONFIG_FILE)
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
     return {"yolo_model": "yolov8n.pt"}
 
 def save_config(config):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
+    atomic_write_json(CONFIG_FILE, config)
 
 def mask_secret(value):
     value = str(value or "").strip()
@@ -176,10 +228,7 @@ def mask_secret(value):
 
 def is_loopback_client(request):
     host = request.client.host if request.client else ""
-    return host in {"127.0.0.1", "::1", "localhost"}
-
-def get_api_key():
-    return str(os.getenv("CCTV_API_KEY") or config.get("api_key", "")).strip()
+    return is_loopback_host(host)
 
 def request_origin_allowed(request):
     origin = request.headers.get("origin")
@@ -193,14 +242,27 @@ def request_origin_allowed(request):
 
 @app.middleware("http")
 async def require_api_key_for_remote_writes(request: Request, call_next):
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        if not request_origin_allowed(request):
-            return JSONResponse(status_code=403, content={"status": "error", "message": "Forbidden origin"})
-        if not is_loopback_client(request):
-            api_key = get_api_key()
-            if not api_key or request.headers.get("X-API-Key") != api_key:
-                return JSONResponse(status_code=401, content={"status": "error", "message": "Unauthorized"})
-    return await call_next(request)
+    # This project is intentionally a local desktop-style application.  Binding
+    # Uvicorn to another interface must not accidentally expose camera feeds,
+    # face images, history, or RTSP credentials to the LAN.
+    if not is_loopback_client(request):
+        response = JSONResponse(
+            status_code=403,
+            content={"status": "error", "message": "Local access only"},
+        )
+    elif request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request_origin_allowed(request):
+        response = JSONResponse(
+            status_code=403,
+            content={"status": "error", "message": "Forbidden origin"},
+        )
+    else:
+        response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 def sanitized_stem(value, default="item", max_len=80):
     stem = os.path.basename(str(value or "").strip())
@@ -258,6 +320,20 @@ if current_yolo_model not in ALLOWED_YOLO_MODELS:
 save_unknown_faces = config.get("save_unknown_faces", False)
 show_only_targets = config.get("show_only_targets", False)
 min_confidence = config.get("min_confidence", 50)
+PERSON_DETECTION_CONFIDENCE = 20
+LPR_VEHICLE_DETECTION_CONFIDENCE = 18
+LPR_INFERENCE_IMGSZ = 960
+LPR_MAX_ATTEMPTS = 5
+LPR_RETRY_INTERVAL_SECONDS = 0.20
+LPR_BEST_FRAME_SETTLE_SECONDS = 0.08
+# One waiting job per camera is enough: OCR should inspect the freshest useful
+# crop instead of building latency behind vehicles that have already moved on.
+LPR_QUEUE_MAX_SIZE = 1
+LPR_DEBOUNCE_SECONDS = 8.0
+LPR_VERIFY_HIGH_CONFIDENCE = 85
+LPR_VERIFY_MIN_SAMPLES = 3
+ZONE_INFERENCE_IMGSZ = 960
+ZONE_INFERENCE_PADDING_RATIO = 0.08
 # Minimum face similarity (%) required to accept a face as a known target.
 # similarity% = (1 - face_distance) * 100, so 55% == a face_distance of 0.45.
 # Higher = stricter (fewer false matches). Adjustable from the UI.
@@ -276,10 +352,21 @@ enable_lpr = config.get("enable_lpr", False)
 telegram_enabled = config.get("telegram_enabled", False)
 telegram_bot_token = config.get("telegram_bot_token", "")
 telegram_chat_id = config.get("telegram_chat_id", "")
-telegram_cooldown = config.get("telegram_cooldown", 30)
+telegram_cooldown = config.get("telegram_cooldown", 5)
+telegram_min_confidence = int(config.get("telegram_min_confidence", 50))
 telegram_notify_faces = config.get("telegram_notify_faces", True)
 telegram_notify_vehicles = config.get("telegram_notify_vehicles", True)
 telegram_notify_plates = config.get("telegram_notify_plates", True)
+telegram_notify_zone = config.get("telegram_notify_zone", True)
+TELEGRAM_PERSON_IMAGE_MODES = {"crop", "album", "wide"}
+telegram_person_image_mode = config.get("telegram_person_image_mode", "album")
+if telegram_person_image_mode not in TELEGRAM_PERSON_IMAGE_MODES:
+    telegram_person_image_mode = "album"
+    config["telegram_person_image_mode"] = telegram_person_image_mode
+enable_person_detection = FACE_AVAILABLE and config.get("enable_person_detection", True)
+detect_any_person = config.get("detect_any_person", True)
+detect_any_vehicle_zone = config.get("detect_any_vehicle_zone", True)
+zone_uncertain_confidence_threshold = int(config.get("zone_uncertain_confidence_threshold", 40))
 
 telegram_last_sent = {} # key -> timestamp (float)
 telegram_lock = threading.Lock()
@@ -386,7 +473,7 @@ def build_telegram_comparison_card(target_type, target_name, match_pct, camera_n
             target_loaded = cv2.imread(target_img_path)
         except Exception:
             target_loaded = None
-            
+
     if target_loaded is not None and target_loaded.size > 0:
         th, tw = target_loaded.shape[:2]
         scale = min((box_w - 30) / tw, (box_h - 30) / th)
@@ -417,26 +504,271 @@ def build_telegram_comparison_card(target_type, target_name, match_pct, camera_n
 
     return canvas
 
-def send_telegram_alert_async(target_type, target_name, match_pct, camera_name, live_crop_img, target_img_path=None, plate_text=None):
+def build_telegram_single_card(target_type, target_name, match_pct, camera_name, live_crop_img, plate_text=None):
+    card_w, card_h = 820, 700
+    canvas = np.zeros((card_h, card_w, 3), dtype=np.uint8)
+    canvas[:] = (46, 27, 15)
+
+    safe_target = telegram_image_text(target_name, max_len=26)
+    safe_camera = telegram_image_text(camera_name, max_len=20)
+    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    score_color = (114, 186, 86) if match_pct >= 80 else (210, 145, 42) if match_pct >= 60 else (41, 33, 178)
+
+    raw_name = str(target_name or "")
+    if "วัตถุต้องสงสัย" in raw_name:
+        card_title = "ตรวจพบวัตถุ/ความเคลื่อนไหวในพื้นที่"
+        title_color = (0, 215, 255) # Yellow/Gold
+        footer_note = "ระบบเฝ้าระวังพื้นที่: ตรวจพบสิ่งเคลื่อนไหว (กรุณาตรวจสอบภาพมุมกว้าง)"
+    elif "ยานพาหนะในพื้นที่" in raw_name:
+        card_title = "ตรวจพบยานพาหนะในพื้นที่เฝ้าระวัง"
+        title_color = (60, 210, 255)
+        footer_note = "ระบบเฝ้าระวังพื้นที่: ตรวจพบยานพาหนะในเขตกำหนด (Zone Intrusion)"
+    elif "ยานพาหนะข้ามเส้น" in raw_name:
+        card_title = "ตรวจพบยานพาหนะข้ามเส้นกำหนด"
+        title_color = (80, 180, 255)
+        footer_note = "ระบบเฝ้าระวังเส้นทาง: ตรวจพบยานพาหนะข้ามเส้นตรวจจับ (Line Crossing)"
+    elif "บุคคลในพื้นที่" in raw_name or "zone" in raw_name.lower():
+        card_title = "ตรวจพบบุคคลในพื้นที่เฝ้าระวัง"
+        title_color = (60, 210, 255)
+        footer_note = "ระบบเฝ้าระวังพื้นที่: ตรวจพบการบุกรุกในเขตกำหนด (Zone Intrusion)"
+    elif "บุคคลข้ามเส้น" in raw_name or "line" in raw_name.lower():
+        card_title = "ตรวจพบบุคคลข้ามเส้นกำหนด"
+        title_color = (80, 180, 255)
+        footer_note = "ระบบเฝ้าระวังเส้นทาง: ตรวจพบบุคคลข้ามเส้นตรวจจับ (Line Crossing)"
+    elif "บุคคลทั่วไป" in raw_name:
+        card_title = "ตรวจพบบุคคลผ่านกล้อง"
+        title_color = (245, 215, 60)
+        footer_note = "ระบบตรวจพบบุคคลและบันทึกภาพลงฐานข้อมูลเรียบร้อย"
+    elif plate_text:
+        card_title = f"ตรวจพบป้ายทะเบียน: {plate_text}"
+        title_color = (40, 210, 255)
+        footer_note = "ระบบตรวจจับป้ายทะเบียนยานพาหนะอัตโนมัติ (LPR)"
+    else:
+        card_title = "แจ้งเตือนการตรวจจับอัตโนมัติ"
+        title_color = (250, 252, 255)
+        footer_note = "ระบบตรวจจับความเคลื่อนไหวและบันทึกภาพอัตโนมัติ"
+
+    # Outer border
+    rounded_rect(canvas, (20, 20), (800, 680), (48, 29, 16), radius=24)
+    rounded_rect(canvas, (20, 20), (800, 680), (122, 82, 54), radius=24, thickness=2)
+
+    # Header
+    rounded_rect(canvas, (44, 44), (776, 116), (66, 45, 31), radius=16)
+    rounded_rect(canvas, (620, 58), (756, 102), score_color, radius=20)
+    canvas = put_thai_text(canvas, card_title, (68, 62), title_color, font_size=26)
+    canvas = put_thai_text(canvas, f"AI {match_pct}%", (642, 66), (255, 255, 255), font_size=22)
+
+    # Chips
+    chip_y = 138
+    rounded_rect(canvas, (44, chip_y), (344, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (358, chip_y), (604, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (618, chip_y), (776, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (44, chip_y), (344, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (358, chip_y), (604, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (618, chip_y), (776, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    canvas = put_thai_text(canvas, f"เหตุการณ์: {safe_target}", (58, chip_y + 11), (220, 230, 245), font_size=15)
+    canvas = put_thai_text(canvas, f"กล้อง: {safe_camera}", (372, chip_y + 11), (220, 230, 245), font_size=15)
+    canvas = put_thai_text(canvas, f"เวลา: {ts_now[-8:]}", (636, chip_y + 11), (220, 230, 245), font_size=15)
+
+    # Large Single Image Viewport
+    img_y1, img_y2 = 200, 585
+    box_w = 732
+    box_h = img_y2 - img_y1
+    rounded_rect(canvas, (44, img_y1), (776, img_y2), (32, 20, 12), radius=18)
+    rounded_rect(canvas, (44, img_y1), (776, img_y2), (148, 103, 71), radius=18, thickness=1)
+
+    if live_crop_img is not None and live_crop_img.size > 0:
+        lh, lw = live_crop_img.shape[:2]
+        scale = min((box_w - 24) / lw, (box_h - 24) / lh)
+        nw, nh = max(1, int(lw * scale)), max(1, int(lh * scale))
+        resized_live = cv2.resize(live_crop_img, (nw, nh), interpolation=cv2.INTER_AREA)
+        off_x = 44 + (box_w - nw) // 2
+        off_y = img_y1 + (box_h - nh) // 2
+        canvas[off_y:off_y+nh, off_x:off_x+nw] = resized_live
+    else:
+        canvas = put_thai_text(canvas, "ไม่มีภาพจากการตรวจจับ", (280, img_y1 + 175), (185, 160, 145), font_size=23)
+
+    # Footer
+    rounded_rect(canvas, (44, 604), (776, 658), (66, 45, 31), radius=14)
+    canvas = put_thai_text(canvas, telegram_image_text(footer_note, max_len=62), (68, 620), (38, 202, 255), font_size=20)
+
+    return canvas
+
+def build_telegram_lpr_card(plate_text, match_pct, camera_name, vehicle_img=None, plate_crop_img=None, target_name=None):
+    card_w, card_h = 820, 720
+    canvas = np.zeros((card_h, card_w, 3), dtype=np.uint8)
+    canvas[:] = (46, 27, 15)
+
+    safe_plate = telegram_image_text(plate_text, max_len=24)
+    safe_camera = telegram_image_text(camera_name, max_len=20)
+    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    score_color = (114, 186, 86) if match_pct >= 75 else (210, 145, 42) if match_pct >= 50 else (41, 33, 178)
+
+    is_watchlist = bool(target_name and "เป้าหมาย" in str(target_name))
+    card_title = "ตรวจพบป้ายทะเบียนเป้าหมาย" if is_watchlist else "ตรวจพบป้ายทะเบียนยานพาหนะ (LPR)"
+    title_color = (40, 210, 255) if not is_watchlist else (50, 160, 255)
+
+    # Outer border
+    rounded_rect(canvas, (20, 20), (800, 700), (48, 29, 16), radius=24)
+    rounded_rect(canvas, (20, 20), (800, 700), (122, 82, 54), radius=24, thickness=2)
+
+    # Header Box
+    rounded_rect(canvas, (44, 40), (776, 108), (66, 45, 31), radius=16)
+    rounded_rect(canvas, (620, 54), (756, 96), score_color, radius=18)
+    canvas = put_thai_text(canvas, card_title, (68, 56), title_color, font_size=25)
+    canvas = put_thai_text(canvas, f"OCR {match_pct}%", (638, 62), (255, 255, 255), font_size=21)
+
+    # License Plate Feature Box (124 - 214)
+    plate_y1, plate_y2 = 124, 214
+    box_w = 732
+    rounded_rect(canvas, (44, plate_y1), (776, plate_y2), (32, 20, 12), radius=16)
+    rounded_rect(canvas, (44, plate_y1), (776, plate_y2), (148, 103, 71), radius=16, thickness=1)
+
+    has_crop = (plate_crop_img is not None and plate_crop_img.size > 0)
+    badge_x1 = 400 if has_crop else 216
+    badge_x2 = 760 if has_crop else 604
+    badge_w = badge_x2 - badge_x1
+    badge_y1 = plate_y1 + 10
+    badge_y2 = plate_y2 - 10
+
+    if has_crop:
+        # Crop on left side
+        cw = badge_x1 - 64
+        ch = plate_y2 - plate_y1 - 16
+        ph, pw = plate_crop_img.shape[:2]
+        s = min(cw / pw, ch / ph)
+        nw, nh = max(1, int(pw * s)), max(1, int(ph * s))
+        rcrop = cv2.resize(plate_crop_img, (nw, nh), interpolation=cv2.INTER_AREA)
+        ox = 54 + (cw - nw) // 2
+        oy = plate_y1 + 8 + (ch - nh) // 2
+        canvas[oy:oy+nh, ox:ox+nw] = rcrop
+
+    # White metallic Thai license plate badge
+    rounded_rect(canvas, (badge_x1, badge_y1), (badge_x2, badge_y2), (248, 250, 252), radius=12)
+    rounded_rect(canvas, (badge_x1, badge_y1), (badge_x2, badge_y2), (25, 25, 25), radius=12, thickness=2)
+    rounded_rect(canvas, (badge_x1 + 4, badge_y1 + 4), (badge_x2 - 4, badge_y2 - 4), (190, 195, 200), radius=10, thickness=1)
+
+    # Subtitle / Header inside plate
+    canvas = put_thai_text(canvas, "THAILAND", (badge_x1 + (badge_w - 65) // 2, badge_y1 + 6), (120, 125, 130), font_size=11)
+
+    # Centered Plate text
+    plate_text_display = safe_plate if safe_plate else "ไม่สามารถระบุเลข"
+    pfont = get_thai_font(28)
+    try:
+        pbbox = pfont.getbbox(plate_text_display)
+        ptw = pbbox[2] - pbbox[0]
+    except Exception:
+        ptw = len(plate_text_display) * 16
+    canvas = put_thai_text(canvas, plate_text_display, (badge_x1 + max(8, (badge_w - ptw) // 2), badge_y1 + 24), (20, 20, 20), font_size=28)
+
+    # Chips Row (228 - 272)
+    chip_y = 228
+    rounded_rect(canvas, (44, chip_y), (344, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (358, chip_y), (604, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (618, chip_y), (776, chip_y + 44), (54, 31, 15), radius=22, thickness=-1)
+    rounded_rect(canvas, (44, chip_y), (344, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (358, chip_y), (604, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    rounded_rect(canvas, (618, chip_y), (776, chip_y + 44), (155, 102, 66), radius=22, thickness=1)
+    canvas = put_thai_text(canvas, f"ทะเบียน: {safe_plate}", (58, chip_y + 11), (255, 215, 60), font_size=16)
+    canvas = put_thai_text(canvas, f"กล้อง: {safe_camera}", (372, chip_y + 11), (220, 230, 245), font_size=15)
+    canvas = put_thai_text(canvas, f"เวลา: {ts_now[-8:]}", (636, chip_y + 11), (220, 230, 245), font_size=15)
+
+    # Main Vehicle/Scene Viewport (288 - 604)
+    img_y1, img_y2 = 288, 604
+    vh_box = img_y2 - img_y1
+    rounded_rect(canvas, (44, img_y1), (776, img_y2), (32, 20, 12), radius=18)
+    rounded_rect(canvas, (44, img_y1), (776, img_y2), (148, 103, 71), radius=18, thickness=1)
+
+    if vehicle_img is not None and vehicle_img.size > 0:
+        lh, lw = vehicle_img.shape[:2]
+        scale = min((box_w - 24) / lw, (vh_box - 24) / lh)
+        nw, nh = max(1, int(lw * scale)), max(1, int(lh * scale))
+        resized_v = cv2.resize(vehicle_img, (nw, nh), interpolation=cv2.INTER_AREA)
+        off_x = 44 + (box_w - nw) // 2
+        off_y = img_y1 + (vh_box - nh) // 2
+        canvas[off_y:off_y+nh, off_x:off_x+nw] = resized_v
+    else:
+        canvas = put_thai_text(canvas, "ไม่มีภาพยานพาหนะจากกล้อง", (270, img_y1 + 140), (185, 160, 145), font_size=23)
+
+    # Footer
+    rounded_rect(canvas, (44, 622), (776, 674), (66, 45, 31), radius=14)
+    canvas = put_thai_text(canvas, "ระบบตรวจจับและบันทึกข้อมูลป้ายทะเบียนอัตโนมัติ (License Plate Recognition)", (68, 636), (38, 202, 255), font_size=20)
+
+    return canvas
+
+def build_telegram_upload(bot_token, chat_id, caption, card_bytes, wide_bytes=None, image_mode="crop"):
+    if image_mode == "album" and wide_bytes is not None:
+        media = [
+            {
+                "type": "photo",
+                "media": "attach://person_crop",
+                "caption": caption,
+            },
+            {
+                "type": "photo",
+                "media": "attach://wide_scene",
+            },
+        ]
+        return (
+            f"https://api.telegram.org/bot{bot_token}/sendMediaGroup",
+            {"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
+            {
+                "person_crop": ("person_crop.jpg", card_bytes, "image/jpeg"),
+                "wide_scene": ("wide_scene.jpg", wide_bytes, "image/jpeg"),
+            },
+        )
+
+    selected_bytes = wide_bytes if image_mode == "wide" and wide_bytes is not None else card_bytes
+    selected_name = "wide_scene.jpg" if selected_bytes is wide_bytes else "alert_notification.jpg"
+    return (
+        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+        {"chat_id": chat_id, "caption": caption},
+        {"photo": (selected_name, selected_bytes, "image/jpeg")},
+    )
+
+
+def send_telegram_alert_async(
+    target_type,
+    target_name,
+    match_pct,
+    camera_name,
+    live_crop_img,
+    target_img_path=None,
+    plate_text=None,
+    plate_img_path=None,
+    wide_frame_img=None,
+):
+    if os.environ.get("CCTV_DISABLE_TELEGRAM", "").strip().lower() in {"1", "true", "yes"}:
+        return
     if not config.get("telegram_enabled", False):
         return
-        
+
+    # Low-confidence detections (especially shadows in a zone) are still useful on
+    # the live monitor, but should not generate noisy Telegram notifications.
+    min_alert_confidence = max(1, min(99, int(config.get("telegram_min_confidence", 50))))
+    if float(match_pct or 0) < min_alert_confidence:
+        return
+
     bot_token = str(config.get("telegram_bot_token", "")).strip()
     chat_id = str(config.get("telegram_chat_id", "")).strip()
     if not bot_token or not chat_id:
         return
-        
-    if target_type == "face" and not config.get("telegram_notify_faces", True):
+
+    is_zone_event = target_type == "zone" or "ในพื้นที่" in str(target_name or "") or "zone" in str(target_name or "").lower() or "วัตถุต้องสงสัย" in str(target_name or "")
+    if is_zone_event and not config.get("telegram_notify_zone", True):
         return
-    if target_type == "vehicle" and not config.get("telegram_notify_vehicles", True):
-        return
-    if target_type == "plate" and not config.get("telegram_notify_plates", True):
-        return
-        
-    cooldown = int(config.get("telegram_cooldown", 30))
+    if not is_zone_event:
+        if target_type in ["face", "person"] and not config.get("telegram_notify_faces", True):
+            return
+        if target_type == "vehicle" and not config.get("telegram_notify_vehicles", True):
+            return
+        if target_type == "plate" and not config.get("telegram_notify_plates", True):
+            return
+
+    cooldown = max(1, int(config.get("telegram_cooldown", 5)))
     dedup_key = f"{target_type}:{target_name}:{camera_name}"
     now_ts = time.time()
-    
+
     with telegram_lock:
         last_ts = telegram_last_sent.get(dedup_key, 0.0)
         if now_ts - last_ts < cooldown:
@@ -444,39 +776,165 @@ def send_telegram_alert_async(target_type, target_name, match_pct, camera_name, 
         telegram_last_sent[dedup_key] = now_ts
 
     crop_copy = live_crop_img.copy() if (live_crop_img is not None and live_crop_img.size > 0) else None
+    wide_copy = wide_frame_img.copy() if (wide_frame_img is not None and wide_frame_img.size > 0) else None
 
     def _worker():
         try:
-            comparison_img = build_telegram_comparison_card(
-                target_type=target_type,
-                target_name=target_name,
-                match_pct=match_pct,
-                camera_name=camera_name,
-                live_crop_img=crop_copy,
-                target_img_path=target_img_path,
-                plate_text=plate_text
-            )
-            
-            ok, buf = cv2.imencode(".jpg", comparison_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            is_target_comparison = bool(target_img_path and os.path.exists(target_img_path))
+            is_lpr = bool(plate_text or target_type == "plate")
+
+            if is_target_comparison:
+                alert_card = build_telegram_comparison_card(
+                    target_type=target_type,
+                    target_name=target_name,
+                    match_pct=match_pct,
+                    camera_name=camera_name,
+                    live_crop_img=crop_copy,
+                    target_img_path=target_img_path,
+                    plate_text=plate_text
+                )
+            elif is_lpr:
+                plate_crop_loaded = None
+                if plate_img_path and os.path.exists(plate_img_path):
+                    try:
+                        plate_crop_loaded = cv2.imread(plate_img_path)
+                    except Exception:
+                        plate_crop_loaded = None
+                alert_card = build_telegram_lpr_card(
+                    plate_text=plate_text or target_name,
+                    match_pct=match_pct,
+                    camera_name=camera_name,
+                    vehicle_img=crop_copy,
+                    plate_crop_img=plate_crop_loaded,
+                    target_name=target_name
+                )
+            else:
+                alert_card = build_telegram_single_card(
+                    target_type=target_type,
+                    target_name=target_name,
+                    match_pct=match_pct,
+                    camera_name=camera_name,
+                    live_crop_img=crop_copy,
+                    plate_text=plate_text
+                )
+
+            ok, buf = cv2.imencode(".jpg", alert_card, [cv2.IMWRITE_JPEG_QUALITY, 90])
             if not ok:
                 return
-                
+
             ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            icon = "🧑" if target_type == "face" else "🚗" if target_type == "vehicle" else "🔤"
-            caption = (
-                f"🚨 แจ้งเตือนตรวจพบเป้าหมาย! {icon}\n"
-                f"🎯 เป้าหมาย: {telegram_caption_text(target_name, max_len=48)}\n"
-                f"📊 ความเหมือน: {match_pct}%\n"
-                f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
-                f"⏰ เวลา: {ts_str}\n"
-            )
-            
-            url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-            files = {"photo": ("alert_comparison.jpg", buf.tobytes(), "image/jpeg")}
-            data = {"chat_id": chat_id, "caption": caption}
-            
+            raw_name = str(target_name or "")
+
+            # Contextual caption tailored to situation
+            if is_lpr and not is_target_comparison:
+                is_watchlist = bool("เป้าหมาย" in str(target_name or ""))
+                if is_watchlist:
+                    caption = (
+                        f"🚨 แจ้งเตือน: ตรวจพบป้ายทะเบียนเป้าหมาย! 🎯\n"
+                        f"🚗 ป้ายทะเบียน: {plate_text or target_name}\n"
+                        f"📋 เป้าหมาย: {telegram_caption_text(target_name, max_len=48)}\n"
+                        f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                        f"🎯 ความมั่นใจ OCR: {match_pct}%\n"
+                        f"⏰ เวลา: {ts_str}\n"
+                    )
+                else:
+                    caption = (
+                        f"🚗 แจ้งเตือน: ตรวจพบป้ายทะเบียนยานพาหนะ (LPR) 🔍\n"
+                        f"📍 ทะเบียน: {plate_text or target_name}\n"
+                        f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                        f"🎯 ความมั่นใจ OCR: {match_pct}%\n"
+                        f"⏰ เวลา: {ts_str}\n"
+                    )
+            elif "วัตถุต้องสงสัย" in raw_name:
+                caption = (
+                    f"⚠️ แจ้งเตือน: ตรวจพบวัตถุ/ความเคลื่อนไหวในเขตกำหนด! 🚨\n"
+                    f"📍 เหตุการณ์: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                    f"ℹ️ คำแนะนำ: ไม่แน่ใจประเภทวัตถุ/บุคคล กรุณาตรวจสอบภาพด้านล่าง\n"
+                )
+            elif "ยานพาหนะในพื้นที่" in raw_name:
+                caption = (
+                    f"🚗 แจ้งเตือน: ตรวจพบยานพาหนะในพื้นที่เฝ้าระวัง! 🚨\n"
+                    f"📍 เหตุการณ์: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            elif "ยานพาหนะข้ามเส้น" in raw_name:
+                caption = (
+                    f"🚧 แจ้งเตือน: ตรวจพบยานพาหนะข้ามเส้นกำหนด! ⚠️\n"
+                    f"📍 เหตุการณ์: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            elif "บุคคลในพื้นที่" in raw_name or "zone" in raw_name.lower():
+                caption = (
+                    f"🧑 แจ้งเตือน: ตรวจพบบุคคลในพื้นที่เฝ้าระวัง! 🚨\n"
+                    f"📍 เหตุการณ์: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            elif "บุคคลข้ามเส้น" in raw_name or "line" in raw_name.lower():
+                caption = (
+                    f"🚧 แจ้งเตือน: ตรวจพบบุคคลข้ามเส้นกำหนด! ⚠️\n"
+                    f"📍 เหตุการณ์: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            elif "บุคคลทั่วไป" in raw_name:
+                caption = (
+                    f"👤 แจ้งเตือน: ตรวจพบบุคคลผ่านกล้อง! 🔔\n"
+                    f"📍 รายการ: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            elif not is_target_comparison:
+                caption = (
+                    f"⚡ แจ้งเตือนตรวจพบวัตถุ/ความเคลื่อนไหว! 🔔\n"
+                    f"📍 รายการ: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"🎯 ความมั่นใจ AI: {match_pct}%\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+            else:
+                icon = "🧑" if target_type in ["face", "person"] else "🚗" if target_type == "vehicle" else "🎯"
+                caption = (
+                    f"🚨 แจ้งเตือนตรวจพบเป้าหมาย! {icon}\n"
+                    f"🎯 เป้าหมาย: {telegram_caption_text(target_name, max_len=48)}\n"
+                    f"📊 ความเหมือน: {match_pct}%\n"
+                    f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
+                    f"⏰ เวลา: {ts_str}\n"
+                )
+
             import requests
-            resp = requests.post(url, data=data, files=files, timeout=10)
+            image_mode = str(config.get("telegram_person_image_mode", "album"))
+            if image_mode not in TELEGRAM_PERSON_IMAGE_MODES:
+                image_mode = "album"
+
+            wide_buf = None
+            if wide_copy is not None and image_mode in {"album", "wide"}:
+                wide_ok, encoded_wide = cv2.imencode(
+                    ".jpg", wide_copy, [cv2.IMWRITE_JPEG_QUALITY, 88]
+                )
+                if wide_ok:
+                    wide_buf = encoded_wide
+
+            url, data, files = build_telegram_upload(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                caption=caption,
+                card_bytes=buf.tobytes(),
+                wide_bytes=wide_buf.tobytes() if wide_buf is not None else None,
+                image_mode=image_mode,
+            )
+
+            resp = requests.post(url, data=data, files=files, timeout=15)
             if resp.status_code == 200:
                 print(f"✈️ [Telegram] ส่งการแจ้งเตือนสำเร็จ: {target_name} ({match_pct}%)")
             else:
@@ -549,10 +1007,11 @@ def load_latest_hits_from_db():
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             # 1. Load latest 10 hits per camera_url
             cursor.execute('''
-                SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited, plate_img_url, license_plate
+                SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited,
+                       plate_img_url, license_plate, lpr_status, lpr_initial_plate, lpr_sample_count
                 FROM hits
                 ORDER BY timestamp DESC
             ''')
@@ -575,14 +1034,17 @@ def load_latest_hits_from_db():
                         "full_url": row["full_url"],
                         "is_color_edited": row["is_color_edited"] if "is_color_edited" in row.keys() else 0,
                         "plate_img_url": row["plate_img_url"] if "plate_img_url" in row.keys() else None,
-                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None
+                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None,
+                        "lpr_status": row["lpr_status"] if "lpr_status" in row.keys() else None,
+                        "lpr_initial_plate": row["lpr_initial_plate"] if "lpr_initial_plate" in row.keys() else None,
+                        "lpr_sample_count": row["lpr_sample_count"] if "lpr_sample_count" in row.keys() else 0,
                     }
                     latest_hits[cam_url].append(hit_info)
-            
+
             # 2. Load target hit counts
             cursor.execute('''
-                SELECT camera_url, name, COUNT(*) as count 
-                FROM hits 
+                SELECT camera_url, name, COUNT(*) as count
+                FROM hits
                 WHERE name != 'บุคคลทั่วไป' AND name NOT LIKE '[LPR]%'
                 GROUP BY camera_url, name
             ''')
@@ -591,12 +1053,12 @@ def load_latest_hits_from_db():
                 c_url = r["camera_url"]
                 t_name = r["name"]
                 t_count = r["count"]
-                
+
                 base_name = t_name.split(" (#")[0] if " (#" in t_name else t_name
                 if c_url not in target_hit_counts:
                     target_hit_counts[c_url] = {}
                 target_hit_counts[c_url][base_name] = target_hit_counts[c_url].get(base_name, 0) + t_count
-                
+
             print(f"[DB] Loaded latest hits for {len(latest_hits)} cameras, target stats for {len(target_hit_counts)} cameras.")
     except Exception as e:
         print(f"[DB] Error loading latest hits from DB: {e}")
@@ -612,18 +1074,17 @@ DEFAULT_CAMERAS = [
 
 def load_cameras():
     if not os.path.exists(CAMERAS_FILE):
-        with open(CAMERAS_FILE, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_CAMERAS, f, indent=4, ensure_ascii=False)
+        atomic_write_json(CAMERAS_FILE, DEFAULT_CAMERAS)
         return DEFAULT_CAMERAS
     try:
+        protect_private_file(CAMERAS_FILE)
         with open(CAMERAS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except:
         return DEFAULT_CAMERAS
 
 def save_cameras(cameras):
-    with open(CAMERAS_FILE, "w", encoding="utf-8") as f:
-        json.dump(cameras, f, indent=4, ensure_ascii=False)
+    atomic_write_json(CAMERAS_FILE, cameras)
 
 init_cameras = load_cameras()
 RTSP_URL = init_cameras[0]["url"] if init_cameras else "0"
@@ -646,16 +1107,19 @@ global_raw_frame = None
 current_cap = None
 global_frame_lock = threading.Lock()
 inference_lock = threading.Lock()
+ocr_lock = threading.Lock()
 
 def load_known_faces():
     global known_face_encodings, known_face_names, known_face_cache
+    if not FACE_AVAILABLE:
+        return
     temp_encodings = []
     temp_names = []
     new_cache = {}
-    
+
     if not os.path.exists('targets'):
         os.makedirs('targets', exist_ok=True)
-        
+
     for filename in os.listdir('targets'):
         if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
             path = os.path.join('targets', filename)
@@ -666,10 +1130,10 @@ def load_known_faces():
                 temp_encodings.append(entry["encoding"])
                 temp_names.append(entry["base_name"])
                 continue
-                
+
             try:
                 img = face_recognition.load_image_file(path)
-                encodings = face_recognition.face_encodings(img)
+                encodings = safe_face_encodings(img)
                 if encodings:
                     encoding = encodings[0]
                     name = os.path.splitext(filename)[0]
@@ -680,7 +1144,7 @@ def load_known_faces():
                     print(f"✅ โหลดใบหน้าเป้าหมาย: {name} (กลุ่ม: {base_name})")
             except Exception as e:
                 print(f"❌ โหลด {filename} ไม่ได้: {e}")
-                
+
     with targets_lock:
         known_face_encodings = temp_encodings
         known_face_names = temp_names
@@ -695,7 +1159,7 @@ def append_known_face(filepath):
     global known_face_cache, known_face_encodings, known_face_names
     try:
         img = face_recognition.load_image_file(filepath)
-        encodings = face_recognition.face_encodings(img)
+        encodings = safe_face_encodings(img)
         if not encodings:
             return False
         filename = os.path.basename(filepath)
@@ -853,10 +1317,7 @@ plate_targets = []
 def normalize_plate(text):
     if not text:
         return ""
-    thai_digits = "๐๑๒๓๔๕๖๗๘๙"
-    arabic_digits = "0123456789"
-    tr = str.maketrans(thai_digits, arabic_digits)
-    text = str(text).translate(tr)
+    text = normalize_thai_plate_digits(text)
     # Keep Thai letters, English letters, and numbers
     cleaned = re.sub(r'[^ก-ฮ0-9a-zA-Zก-๙]', '', text).strip().upper()
     return cleaned
@@ -864,10 +1325,7 @@ def normalize_plate(text):
 def extract_digits(text):
     if not text:
         return ""
-    thai_digits = "๐๑๒๓๔๕๖๗๘๙"
-    arabic_digits = "0123456789"
-    tr = str.maketrans(thai_digits, arabic_digits)
-    text = str(text).translate(tr)
+    text = normalize_thai_plate_digits(text)
     digits = re.sub(r'[^0-9]', '', text)
     return digits
 
@@ -899,16 +1357,67 @@ load_plate_targets()
 
 
 def check_bbox_polygon_intersection(x1, y1, x2, y2, pts_arr):
+    if pts_arr is None or len(pts_arr) < 3:
+        return True
     cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-    corners = [(x1, y1), (x2, y1), (x1, y2), (x2, y2), (cx, cy)]
-    for c in corners:
-        if cv2.pointPolygonTest(pts_arr, c, False) >= 0:
+    y_base = int(y1 + 0.75 * (y2 - y1))
+    test_points = [
+        (cx, y2),        # Feet / bottom center (crucial for ground CCTV zones!)
+        (x1, y2),        # Bottom-left corner
+        (x2, y2),        # Bottom-right corner
+        (cx, cy),        # Center
+        (cx, y_base),    # Lower-body center
+        (x1, y_base),    # Lower-body left
+        (x2, y_base),    # Lower-body right
+        (x1, y1),        # Top-left corner
+        (x2, y1),        # Top-right corner
+        (cx, y1)         # Top center
+    ]
+    for c in test_points:
+        if cv2.pointPolygonTest(pts_arr, (float(c[0]), float(c[1])), False) >= 0:
             return True
+
     for pt in pts_arr:
         px, py = int(pt[0]), int(pt[1])
         if x1 <= px <= x2 and y1 <= py <= y2:
             return True
+
+    n_pts = len(pts_arr)
+    bbox_edges = [
+        ((x1, y1), (x2, y1)),
+        ((x2, y1), (x2, y2)),
+        ((x2, y2), (x1, y2)),
+        ((x1, y2), (x1, y1))
+    ]
+    for i in range(n_pts):
+        p1 = (int(pts_arr[i][0]), int(pts_arr[i][1]))
+        p2 = (int(pts_arr[(i + 1) % n_pts][0]), int(pts_arr[(i + 1) % n_pts][1]))
+        for b1, b2 in bbox_edges:
+            if intersect(b1, b2, p1, p2):
+                return True
+
     return False
+
+def get_zone_inference_frame(frame, detection_zone):
+    """Crop around a normalized polygon so small CCTV subjects retain detail."""
+    if frame is None or not detection_zone or len(detection_zone) < 3:
+        return frame, 0, 0
+
+    frame_h, frame_w = frame.shape[:2]
+    points = np.array(
+        [(int(p["x"] * frame_w), int(p["y"] * frame_h)) for p in detection_zone],
+        dtype=np.int32,
+    )
+    x, y, width, height = cv2.boundingRect(points)
+    padding = int(max(width, height) * ZONE_INFERENCE_PADDING_RATIO)
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
+    x2 = min(frame_w, x + width + padding)
+    y2 = min(frame_h, y + height + padding)
+
+    if x2 - x1 < 32 or y2 - y1 < 32:
+        return frame, 0, 0
+    return frame[y1:y2, x1:x2], x1, y1
 
 def ccw(A, B, C):
     return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
@@ -1069,35 +1578,71 @@ def is_type_compatible(target_type, detected_type):
         return False
     target_type = target_type.strip()
     detected_type = detected_type.strip()
-    
+
     if target_type == detected_type:
         return True
-        
+
     # กลุ่มรถยนต์ขนาดเล็ก-ปานกลาง (รถเก๋ง มักจะโดนตรวจจับสลับกับรถตู้ได้บางกรณี)
     if target_type in ["รถเก๋ง", "รถตู้"] and detected_type in ["รถเก๋ง", "รถตู้"]:
         return True
-        
+
     # กลุ่มรถบรรทุกและรถกระบะ (YOLO มักจะเห็นรถกระบะ/รถบรรทุกเป็น class เดียวกัน)
     if target_type in ["รถกระบะ", "รถบรรทุก"] and detected_type in ["รถกระบะ", "รถบรรทุก"]:
         return True
-        
+
     return False
 
 vehicle_types_compatible = is_type_compatible
 vehicle_colors_compatible = is_color_compatible
 
 _lpr_reader = None
+_lpr_reader_init_lock = threading.Lock()
+_lpr_inference_lock = threading.Lock()
+_lpr_reader_uses_accelerator = False
+
+def _easyocr_device():
+    """Keep EasyOCR off MPS by default so it cannot take down the video worker.
+
+    YOLO and EasyOCR otherwise initialize separate, large MPS model stacks from
+    different worker threads.  On Apple Silicon that combination can terminate
+    the process while LPR is being initialized.  CUDA remains the automatic GPU
+    choice; MPS can still be explicitly requested for troubleshooting.
+    """
+    requested = os.getenv("CCTV_EASYOCR_DEVICE", "auto").strip().lower()
+    if requested == "cuda":
+        if torch.cuda.is_available():
+            return "cuda", "CUDA"
+        print("[LPR] CUDA was requested but is unavailable; falling back to CPU.")
+        return False, "CPU"
+    if requested == "mps":
+        if torch.backends.mps.is_available():
+            return "mps", "MPS (Apple Silicon GPU; explicitly enabled)"
+        print("[LPR] MPS was requested but is unavailable; falling back to CPU.")
+        return False, "CPU"
+    if requested not in {"", "auto", "cpu"}:
+        print(f"[LPR] Unknown CCTV_EASYOCR_DEVICE={requested!r}; falling back to CPU.")
+        return False, "CPU"
+    if requested == "auto" and torch.cuda.is_available():
+        return True, "CUDA"
+    if requested == "auto" and torch.backends.mps.is_available():
+        return False, "CPU (stable mode; MPS reserved for detection)"
+    return False, "CPU"
 
 def _get_lpr_reader():
-    global _lpr_reader
-    if _lpr_reader is None:
-        try:
-            print("[LPR] Initializing EasyOCR Reader (th, en) on CPU...")
-            import easyocr
-            _lpr_reader = easyocr.Reader(['th', 'en'], gpu=False)
-            print("[LPR] EasyOCR Reader initialized successfully.")
-        except Exception as e:
-            print(f"[LPR] Failed to initialize EasyOCR Reader: {e}")
+    global _lpr_reader, _lpr_reader_uses_accelerator
+    if _lpr_reader is not None:
+        return _lpr_reader
+    with _lpr_reader_init_lock:
+        if _lpr_reader is None:
+            try:
+                easyocr_device, device_str = _easyocr_device()
+                print(f"[LPR] Initializing EasyOCR Reader (th, en) on {device_str}...")
+                import easyocr
+                _lpr_reader = easyocr.Reader(['th', 'en'], gpu=easyocr_device)
+                _lpr_reader_uses_accelerator = easyocr_device in {True, "cuda", "mps"}
+                print(f"[LPR] EasyOCR Reader initialized successfully on {device_str}.")
+            except Exception as e:
+                print(f"[LPR] Failed to initialize EasyOCR Reader: {e}")
     return _lpr_reader
 
 import re
@@ -1105,12 +1650,43 @@ import re
 def correct_thai_license_plate(text):
     if not text:
         return ""
-        
+
+    # EasyOCR's Thai model sometimes emits Thai numerals for Arabic digits.
+    # Thai registration numbers use Arabic digits, so normalize before any
+    # positional correction. Python's str.isdigit() accepts both forms.
+    text = normalize_thai_plate_digits(text)
+
+    # 1. Thai commercial vehicle plates (พ.ร.บ. การขนส่งทางบก):
+    # Heavy trucks (10-wheelers, trailers, semi-trailers), buses, tankers have strictly
+    # digits formatted as XX-XXXX (e.g. 80-4058, 70-1234) with NO Thai consonants.
+    if not re.search(r'[ก-ฮก-๙]', text):
+        trans_table = str.maketrans({
+            'O': '0', 'o': '0',
+            'I': '1', 'i': '1', 'l': '1', 'L': '1',
+            'B': '8', 'b': '8',
+            'Z': '2', 'z': '2',
+            'S': '5', 's': '5',
+            'T': '5', 't': '5',
+            'G': '6', 'g': '6',
+            'q': '9', 'Q': '0',
+        })
+        cleaned_comm = text.translate(trans_table)
+        # Check explicit dash separator: e.g. "80-4058", "|80-4058", "80 - 4058"
+        m = re.search(r'([1-9][0-9])\s*[-–—]\s*([0-9]{1,4})', cleaned_comm)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+        # Check 5 to 6 digits, e.g. "804058" or "80 4058"
+        digits_only = re.sub(r'[^0-9]', '', cleaned_comm)
+        if 5 <= len(digits_only) <= 6:
+            return f"{digits_only[:2]}-{digits_only[2:]}"
+        if 1 <= len(digits_only) <= 4:
+            return digits_only
+
     # Remove any non-alphanumeric characters
     cleaned = re.sub(r'[^ก-ฮ0-9a-zA-Zก-๙]', '', text)
     if len(cleaned) < 3:
         return cleaned
-        
+
     eng_to_thai = {
         'A': 'ล', 'a': 'ล', 'B': 'ข', 'b': 'ข', 'C': 'ง', 'c': 'ง',
         'D': 'ด', 'd': 'ด', 'E': 'ธ', 'e': 'ธ', 'F': 'ร', 'f': 'ร',
@@ -1122,34 +1698,34 @@ def correct_thai_license_plate(text):
         'V': 'น', 'v': 'น', 'W': 'พ', 'w': 'พ', 'X': 'ต', 'x': 'ต',
         'Y': 'ญ', 'y': 'ญ', 'Z': 'ว', 'z': 'ว'
     }
-    
+
     char_to_digit = {
         '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
         'ร': '3', 'R': '3', 'r': '3', 'P': '3', 'p': '3', 'F': '3', 'f': '3',
         'ข': '8', 'B': '8', 'b': '8',
         'ว': '2', 'Z': '2', 'z': '2',
         'จ': '7', 'J': '7', 'j': '7',
-        'ต': '5', 'T': '5', 't': '5',
+        'ต': '5', 'T': '5', 't': '5', 'S': '5', 's': '5',
         'เ': '1', 'แ': '1', 'I': '1', 'i': '1', 'L': '1', 'l': '1',
         'ง': '4', 'อ': '0', 'O': '0', 'o': '0'
     }
-    
+
     digit_to_char = {
         '3': 'ร', '8': 'ข', '2': 'ว', '7': 'จ', '5': 'ต', '1': 'เ', '0': 'อ'
     }
-    
+
     num_digits_at_end = 0
     for char in reversed(cleaned):
         if char.isdigit() or char in ['O', 'o', 'I', 'i', 'L', 'l', 'B', 'b', 'Z', 'z', 'S', 's', 'T', 't', 'Q', 'q']:
             num_digits_at_end += 1
         else:
             break
-            
+
     num_digits = min(4, max(1, num_digits_at_end))
-    
+
     prefix_part = cleaned[:-num_digits]
     number_part = cleaned[-num_digits:]
-    
+
     corrected_prefix = ""
     if len(prefix_part) == 3:
         first_char = prefix_part[0]
@@ -1164,7 +1740,7 @@ def correct_thai_license_plate(text):
                 corrected_prefix += eng_to_thai[first_char]
             else:
                 corrected_prefix += first_char
-            
+
         for char in prefix_part[1:]:
             if '\u0e00' <= char <= '\u0e7f':
                 if char in digit_to_char:
@@ -1198,7 +1774,7 @@ def correct_thai_license_plate(text):
                 corrected_prefix += eng_to_thai[char]
             else:
                 corrected_prefix += char
-                
+
     corrected_number = ""
     for char in number_part:
         if char.isdigit():
@@ -1207,13 +1783,13 @@ def correct_thai_license_plate(text):
             corrected_number += char_to_digit[char]
         else:
             corrected_number += char
-            
+
     return f"{corrected_prefix} {corrected_number}".strip()
 
 def sort_detections_by_reading_order(detections):
     if not detections:
         return []
-    
+
     items = []
     for idx, (bbox, text, conf) in enumerate(detections):
         ys = [p[1] for p in bbox]
@@ -1234,9 +1810,9 @@ def sort_detections_by_reading_order(detections):
             'height': height,
             'center_y': center_y
         })
-        
+
     items.sort(key=lambda x: x['center_y'])
-    
+
     lines = []
     for item in items:
         placed = False
@@ -1250,15 +1826,15 @@ def sort_detections_by_reading_order(detections):
                 break
         if not placed:
             lines.append([item])
-            
+
     lines.sort(key=lambda line: sum(item['center_y'] for item in line) / len(line))
-    
+
     sorted_detections = []
     for line in lines:
         line.sort(key=lambda item: item['min_x'])
         for item in line:
             sorted_detections.append((item['bbox'], item['text'], item['conf']))
-            
+
     return sorted_detections
 
 def clean_license_plate(text):
@@ -1279,10 +1855,11 @@ def is_potential_plate_part(text):
 def is_valid_combined_plate(text):
     if not text:
         return False
+    text = normalize_thai_plate_digits(text)
     cleaned = re.sub(r'[^ก-ฮ0-9a-zA-Zก-๙]', '', text)
     if len(cleaned) < 3 or len(cleaned) > 12:
         return False
-    has_digit = any(c.isdigit() or '๐' <= c <= '๙' for c in cleaned)
+    has_digit = any('0' <= c <= '9' for c in cleaned)
     return has_digit
 
 def is_valid_license_plate(cleaned_text):
@@ -1307,14 +1884,14 @@ def save_high_quality_crop(img, path):
         if img is None or img.size == 0: return
         h, w = img.shape[:2]
         if h < 10 or w < 10: return
-        
+
         target_min_dim = 600
         if w < target_min_dim and h < target_min_dim:
             scale = target_min_dim / max(w, h)
             new_w = int(w * scale)
             new_h = int(h * scale)
             img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-            
+
         cv2.imwrite(path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
     except Exception as e:
         print(f"Error saving high quality crop: {e}")
@@ -1387,7 +1964,7 @@ def put_thai_text(img, text, position, text_color=(0, 0, 255), font_size=24):
     try:
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(img_pil)
-        # OpenCV uses BGR, PIL uses RGB. 
+        # OpenCV uses BGR, PIL uses RGB.
         fill_color = (text_color[2], text_color[1], text_color[0])
         draw.text(position, text, font=get_thai_font(font_size), fill=fill_color)
         return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
@@ -1410,7 +1987,7 @@ class ScreenGrabber:
         self.monitor["top"] = int(self.base_monitor["top"] + (self.base_monitor["height"] * top_pct))
         self.monitor["width"] = max(10, int(self.base_monitor["width"] * width_pct))
         self.monitor["height"] = max(10, int(self.base_monitor["height"] * height_pct))
-        
+
     def reset_region(self):
         self.monitor = self.base_monitor.copy()
 
@@ -1438,12 +2015,13 @@ class CameraWorker:
         self.name = str(name)
         self.url = str(url)
         self.cam_config = cam_config or {}
-        
+
         self.is_enabled = True
         self.stream_state = "stopped"  # Only active/requested cameras run AI inference
         self.frame_skip = int(self.cam_config.get("frame_skip", current_frame_skip))
         self.fps = 0.0
-        
+        self.jpeg_cache = JpegFrameCache(quality=80)
+
         # Seekable / video file properties
         is_vid = str(self.url).startswith("uploads/") or str(self.url).lower().endswith(('.mp4', '.avi', '.mkv', '.mov'))
         self.is_video_source = is_vid
@@ -1451,7 +2029,7 @@ class CameraWorker:
         self.video_total_frames = 0
         self.video_current_frame = 0
         self.seek_request = None
-        
+
         if is_vid and os.path.exists(self.url):
             try:
                 probe_cap = cv2.VideoCapture(self.url)
@@ -1463,13 +2041,13 @@ class CameraWorker:
                     probe_cap.release()
             except Exception:
                 pass
-        
+
         # Detection zone and crossing line per camera
         self.detection_zone = self.cam_config.get("detection_zone", None)
         self.crossing_line = self.cam_config.get("crossing_line", None)
         self.crossing_direction = self.cam_config.get("crossing_direction", "any")
         self.show_detection_zone = self.cam_config.get("show_detection_zone", True)
-        
+
         # Tracking states
         self.tracked_ids = set()
         self.tracked_target_ids = {} # track_id -> target name
@@ -1480,14 +2058,28 @@ class CameraWorker:
         self.track_lpr_results = {}
         self.track_lpr_max_size = {}
         self.track_lpr_logged = set()
+        self.track_lpr_candidates = {}
+        self.recent_plate_hits = {}
+        self.lpr_generation = 0
+        self.lpr_queue = queue.Queue(maxsize=LPR_QUEUE_MAX_SIZE)
+        self.lpr_pending = set()
+        self.lpr_state_lock = threading.Lock()
+        self.lpr_thread = None
+        self.lpr_pipeline = LprPipeline(self._create_lpr_event, self._update_lpr_event)
         self.unknown_persons_count = 0
         self.line_cross_count = 0
-        
+        self.fallback_tracks = {}
+        self.next_fallback_id = 100000
+        # History deletion happens in an API thread while tracking state belongs
+        # to this worker thread. Defer the reset to the worker to avoid clearing
+        # dictionaries while the detection loop is iterating over them.
+        self.tracking_reset_requested = False
+
         # Frames
         self.latest_annotated_frame = None
         self.latest_raw_frame = None
         self.frame_lock = threading.Lock()
-        
+
         # Thread & connection control
         self.cap = None
         self.running = True
@@ -1495,6 +2087,9 @@ class CameraWorker:
         self.thread = None
 
     def start(self):
+        if self.lpr_thread is None or not self.lpr_thread.is_alive():
+            self.lpr_thread = threading.Thread(target=self._lpr_worker_loop, daemon=True)
+            self.lpr_thread.start()
         if self.thread is None or not self.thread.is_alive():
             self.running = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -1502,23 +2097,23 @@ class CameraWorker:
 
     def stop(self):
         self.stream_state = "stopped"
+        self.lpr_pipeline.reset("stopped")
         with self.frame_lock:
             self.latest_annotated_frame = get_black_frame(f"{self.name} (Stopped)")
-        if self.cap is not None:
-            try:
-                self.cap.release()
-            except Exception:
-                pass
-            self.cap = None
+        # The capture thread observes stream_state and releases its own handle.
+        # Releasing here can race cap.read() inside FFmpeg and corrupt memory.
 
     def close(self):
         self.running = False
+        try:
+            self.lpr_queue.put_nowait(None)
+        except queue.Full:
+            pass
         self.stop()
 
     def play(self):
         self.stream_state = "playing"
-        if self.cap is None or not getattr(self.cap, "isOpened", lambda: False)():
-            self.reconnect_requested = True
+        self.reconnect_requested = True
 
     def pause(self):
         self.stream_state = "paused"
@@ -1528,13 +2123,354 @@ class CameraWorker:
         self.stream_state = "playing"
 
     def seek(self, target_frame):
+        self.lpr_pipeline.reset("seek")
         self.seek_request = target_frame
+
+    def request_tracking_reset(self):
+        self.tracking_reset_requested = True
+
+    def _offer_lpr_candidate(self, track_id, vehicle_crop, frame, annotated_frame, bbox, vehicle_confidence, cls_id=2):
+        if vehicle_crop.size == 0:
+            return
+        def capture():
+            x1, y1, x2, y2 = bbox
+            h, w = frame.shape[:2]
+            crop = frame[max(0, y1-50):min(h, y2+50), max(0, x1-50):min(w, x2+50)]
+            encoded = {}
+            for key, img in (("vehicle", vehicle_crop), ("scene", frame), ("crop", crop)):
+                ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                if not ok:
+                    return None
+                encoded[key] = buf.tobytes()
+            encoded["score"] = lpr_frame_quality_score(vehicle_crop, x1 <= 8 or x2 >= w-8 or y2 >= h-8)
+            encoded["is_motorcycle"] = (cls_id == 3)
+            return encoded
+        self.lpr_pipeline.offer(track_id, capture)
+
+    def _dispatch_ready_lpr_candidates(self, now=None):
+        # Also runs while OCR is busy, so a blocked reader cannot strand cards.
+        self.lpr_pipeline.expire()
+
+    def _create_lpr_event(self, track_id, frame):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        event = dict(
+            id=None,
+            name=f"[LPR] พบรถ (#{track_id})",
+            timestamp=timestamp, time=timestamp.split(" ")[1], confidence=0,
+            img_url="", full_url="", license_plate="",
+            lpr_status="queued", lpr_reason="", lpr_initial_plate="",
+            lpr_sample_count=0, plate_img_url=None, is_color_edited=0,
+            camera_id=self.cam_id, camera_name=self.name, track_id=track_id
+        )
+        self.track_lpr_results[track_id] = {"plate": "", "status": "queued", "plate_img_name": None}
+        return event
+
+    def _update_lpr_event(self, event, changes):
+        updated = dict(event)
+        mapping = {"status": "lpr_status", "reason": "lpr_reason", "plate": "license_plate",
+                   "confidence": "confidence", "initial_plate": "lpr_initial_plate",
+                   "sample_count": "lpr_sample_count"}
+        for key, column in mapping.items():
+            if key in changes:
+                updated[column] = changes[key]
+        plate = updated.get("license_plate", "").strip()
+
+        # If no plate has ever been recognized for this track, do not pollute DB or UI
+        if not plate:
+            if event.get("id") is None:
+                event.update(updated)
+                self.track_lpr_results[event["track_id"]] = dict(
+                    plate="", status=updated.get("lpr_status", "pending"), conf=0, plate_img_name=None)
+                return
+            else:
+                updated["name"] = f"[LPR] พบรถ — อ่านป้ายไม่ได้ (#{event['track_id']})"
+        else:
+            updated["name"] = f"[LPR] {plate} (#{event['track_id']})"
+
+        # Synchronize images with winning frame
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        prefix = f"lpr_{self.cam_id}_{event['track_id']}_{stamp}"
+        prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", prefix)
+
+        winning_frame = changes.get("winning_frame")
+        if winning_frame and isinstance(winning_frame, dict):
+            if winning_frame.get("crop"):
+                crop_name = f"{prefix}_crop.jpg"
+                with open(os.path.join("alerts", crop_name), "wb") as output:
+                    output.write(winning_frame["crop"])
+                updated["img_url"] = f"http://localhost:8081/alerts_img/{crop_name}"
+            if winning_frame.get("scene"):
+                scene_name = f"{prefix}_scene.jpg"
+                with open(os.path.join("alerts", scene_name), "wb") as output:
+                    output.write(winning_frame["scene"])
+                updated["full_url"] = f"http://localhost:8081/alerts_img/{scene_name}"
+
+        plate_crop = changes.get("plate_crop")
+        if plate_crop is not None and getattr(plate_crop, "size", 0):
+            filename = f"lpr_review_{event['track_id']}_{stamp}.jpg"
+            save_high_quality_crop(plate_crop, os.path.join("alerts", filename))
+            updated["plate_img_url"] = f"http://localhost:8081/alerts_img/{filename}"
+
+        matched = None
+        if updated.get("lpr_status") == "verified":
+            with plate_targets_lock:
+                matched = next((p for p in plate_targets
+                                if plate_matches_target(plate, p.get("plate"))), None)
+            if matched:
+                updated["name"] = f"ทะเบียนเป้าหมาย {plate} (#{event['track_id']})"
+
+        if event.get("id") is None:
+            # First time logging this recognized plate
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            updated["timestamp"] = timestamp
+            updated["time"] = timestamp.split(" ")[1]
+            with get_db_connection() as conn:
+                cursor = conn.execute("""
+                    INSERT INTO hits(camera_url,name,timestamp,confidence,img_url,full_url,
+                                     license_plate,lpr_status,lpr_reason,lpr_sample_count,plate_img_url)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                """, (str(self.url), updated["name"], timestamp, updated.get("confidence", 0),
+                      updated.get("img_url", ""), updated.get("full_url", ""), plate,
+                      updated.get("lpr_status", "pending"), updated.get("lpr_reason", ""),
+                      updated.get("lpr_sample_count", 1), updated.get("plate_img_url")))
+                event["id"] = cursor.lastrowid
+                updated["id"] = event["id"]
+                conn.commit()
+
+            cam_hits = latest_hits.setdefault(str(self.url), [])
+            cam_hits.insert(0, dict(updated))
+            del cam_hits[10:]
+            self.track_lpr_logged.add(event["track_id"])
+        else:
+            with get_db_connection() as conn:
+                cursor = conn.execute("""
+                    UPDATE hits SET name=?,confidence=?,license_plate=?,lpr_status=?,
+                        lpr_initial_plate=?,lpr_sample_count=?,lpr_reason=?,plate_img_url=?,
+                        img_url=?,full_url=?
+                    WHERE id=?
+                """, (updated["name"], updated.get("confidence", 0), plate,
+                      updated.get("lpr_status", "pending"), updated.get("lpr_initial_plate", ""),
+                      updated.get("lpr_sample_count", 1), updated.get("lpr_reason", ""),
+                      updated.get("plate_img_url"), updated.get("img_url", ""),
+                      updated.get("full_url", ""), event["id"]))
+                conn.commit()
+
+            cam_hits = latest_hits.get(str(self.url), [])
+            for idx, h in enumerate(cam_hits):
+                if h.get("id") == event["id"]:
+                    cam_hits[idx].update(updated)
+                    break
+
+        was_verified = event.get("lpr_status") == "verified"
+        event.update(updated)
+        plate_filename = os.path.basename(urllib.parse.urlparse(event.get("plate_img_url") or "").path) or None
+        self.track_lpr_results[event["track_id"]] = dict(
+            plate=plate, status=event["lpr_status"], conf=event.get("confidence", 0), plate_img_name=plate_filename)
+        if matched and not was_verified:
+            self.tracked_target_ids[event["track_id"]] = event["name"]
+            counts = target_hit_counts.setdefault(str(self.url), {})
+            counts[event["name"]] = counts.get(event["name"], 0) + 1
+        if matched and event["lpr_status"] == "verified" and not was_verified:
+            crop_path = os.path.join("alerts", os.path.basename(urllib.parse.urlparse(event["img_url"]).path)) if event.get("img_url") else None
+            scene_path = os.path.join("alerts", os.path.basename(urllib.parse.urlparse(event["full_url"]).path)) if event.get("full_url") else None
+            send_telegram_alert_async(
+                target_type="plate",
+                target_name=event["name"],
+                match_pct=event["confidence"],
+                camera_name=self.name,
+                live_crop_img=cv2.imread(crop_path) if crop_path and os.path.exists(crop_path) else None,
+                plate_text=plate,
+                plate_img_path=os.path.join("alerts", plate_filename) if plate_filename else None,
+                wide_frame_img=cv2.imread(scene_path) if scene_path and os.path.exists(scene_path) else None,
+            )
+
+    def _run_lpr_ocr_job(self, job):
+        is_mc = job.get("is_motorcycle", False)
+        prepared = prepare_lpr_ocr_images(job["vehicle_crop"], is_motorcycle=is_mc)
+        if prepared is None:
+            return None
+
+        ocr_images = prepared["ocr_images"]
+        reader = _get_lpr_reader()
+        if reader is None:
+            raise RuntimeError("OCR reader unavailable")
+
+        candidates = []
+        preferred = job["attempt_index"] % len(ocr_images)
+        image_order = [preferred] + [index for index in range(len(ocr_images)) if index != preferred]
+        for image_index in image_order:
+            # EasyOCR is a shared singleton, so serialize OCR calls with its own
+            # lock. CPU OCR must not hold the YOLO inference lock: doing so made
+            # the annotated video freeze until every plate read completed.
+            accelerator_lock = inference_lock if _lpr_reader_uses_accelerator else nullcontext()
+            with _lpr_inference_lock:
+                with accelerator_lock:
+                    with torch.inference_mode():
+                        ocr_res = reader.readtext(
+                            ocr_images[image_index],
+                            decoder="greedy",
+                            text_threshold=0.35,
+                            low_text=0.20,
+                            link_threshold=0.25,
+                            width_ths=0.9,
+                            add_margin=0.08,
+                        )
+                        if _lpr_reader_uses_accelerator and torch.backends.mps.is_available():
+                            try:
+                                torch.mps.synchronize()
+                            except Exception:
+                                pass
+
+            raw_runs = []
+            for bbox, text, ocr_conf in ocr_res:
+                # Do not transliterate badges such as ISUZU/TOYOTA into Thai plates.
+                if re.search(r'[a-zA-Z]', text):
+                    continue
+                cleaned_seg = re.sub(r'[^ก-ฮ0-9a-zA-Zก-๙]', '', text).strip()
+                if cleaned_seg and ocr_conf >= 0.15:
+                    raw_runs.append((bbox, cleaned_seg, ocr_conf))
+            if not raw_runs:
+                continue
+
+            valid_runs = sort_detections_by_reading_order(raw_runs)
+            combined_raw = "".join(item[1] for item in valid_runs)
+            combined_text = correct_thai_license_plate(combined_raw)
+            avg_conf = sum(item[2] for item in valid_runs) / len(valid_runs)
+            if plate_read_kind(combined_text) != "invalid" and avg_conf >= 0.25:
+                candidates.append((avg_conf, combined_text, valid_runs))
+                if avg_conf >= 0.50:
+                    break
+        if not candidates:
+            return None
+
+        avg_conf, combined_text, valid_runs = max(candidates, key=lambda item: item[0])
+
+        all_pts = np.array([point for bbox, _, _ in valid_runs for point in bbox])
+        lower_region = prepared["roi"]
+        region_h, region_w = lower_region.shape[:2]
+        px1, py1, px2, py2 = expanded_plate_bbox(
+            all_pts,
+            scale=prepared["scale"],
+            image_width=region_w,
+            image_height=region_h,
+        )
+        plate_crop = lower_region[py1:py2, px1:px2].copy()
+        return {
+            "plate": combined_text,
+            "conf": int(avg_conf * 100),
+            "plate_crop": plate_crop,
+        }
+
+    def _lpr_worker_loop(self):
+        while self.running:
+            job = None
+            try:
+                job = self.lpr_pipeline.next_job()
+                if job is None:
+                    time.sleep(0.1)
+                    continue
+                image = cv2.imdecode(np.frombuffer(job["frame"]["vehicle"], dtype=np.uint8), cv2.IMREAD_COLOR)
+                is_mc = job["frame"].get("is_motorcycle", False)
+                result = self._run_lpr_ocr_job(dict(job, vehicle_crop=image, is_motorcycle=is_mc))
+                self.lpr_pipeline.complete(job, result)
+            except Exception as exc:
+                print(f"LPR background error: {exc}")
+                if job is not None:
+                    try:
+                        self.lpr_pipeline.complete(job, error=True)
+                    except Exception as db_exc:
+                        print(f"LPR event persistence error: {db_exc}")
+                time.sleep(0.1)
+    def apply_pending_tracking_reset(self):
+        if not self.tracking_reset_requested:
+            return False
+
+        self.lpr_pipeline.reset()
+
+        self.tracked_ids.clear()
+        self.tracked_target_ids.clear()
+        self.track_last_seen.clear()
+        self.track_history.clear()
+        self.track_lpr_attempts.clear()
+        self.track_lpr_last_time.clear()
+        self.track_lpr_results.clear()
+        self.track_lpr_max_size.clear()
+        self.track_lpr_logged.clear()
+        self.track_lpr_candidates.clear()
+        self.recent_plate_hits.clear()
+        self.lpr_generation += 1
+        with self.lpr_state_lock:
+            self.lpr_pending.clear()
+        while True:
+            try:
+                queued_job = self.lpr_queue.get_nowait()
+                self.lpr_queue.task_done()
+                if queued_job is None:
+                    break
+            except queue.Empty:
+                break
+        self.unknown_persons_count = 0
+        self.line_cross_count = 0
+        self.fallback_tracks.clear()
+        self.tracking_reset_requested = False
+        return True
+
+    def _assign_fallback_track_ids(self, boxes, cls_ids):
+        now = time.time()
+        self.fallback_tracks = {
+            tid: info for tid, info in self.fallback_tracks.items()
+            if now - info["last_seen"] < 3.0
+        }
+        assigned_ids = []
+        used_ids = set()
+        for box, cls_id in zip(boxes, cls_ids):
+            bx1, by1, bx2, by2 = map(float, box)
+            best_id = None
+            best_iou = 0.20
+            for fid, finfo in self.fallback_tracks.items():
+                if fid in used_ids:
+                    continue
+                if finfo["cls_id"] != cls_id:
+                    continue
+                ox1, oy1, ox2, oy2 = finfo["box"]
+                ix1 = max(bx1, ox1)
+                iy1 = max(by1, oy1)
+                ix2 = min(bx2, ox2)
+                iy2 = min(by2, oy2)
+                iw = max(0.0, ix2 - ix1)
+                ih = max(0.0, iy2 - iy1)
+                inter = iw * ih
+                if inter <= 0:
+                    continue
+                area1 = (bx2 - bx1) * (by2 - by1)
+                area2 = (ox2 - ox1) * (oy2 - oy1)
+                union = area1 + area2 - inter
+                iou = inter / union if union > 0 else 0
+                if iou > best_iou:
+                    best_iou = iou
+                    best_id = fid
+            if best_id is None:
+                self.next_fallback_id += 1
+                best_id = self.next_fallback_id
+            used_ids.add(best_id)
+            self.fallback_tracks[best_id] = {
+                "box": [bx1, by1, bx2, by2],
+                "cls_id": cls_id,
+                "last_seen": now
+            }
+            assigned_ids.append(best_id)
+        return np.array(assigned_ids, dtype=np.int32)
 
     def prune_stale(self, now=None):
         if now is None:
             now = time.time()
+        self.fallback_tracks = {
+            tid: info for tid, info in self.fallback_tracks.items()
+            if now - info["last_seen"] < 3.0
+        }
         stale = [tid for tid, seen in self.track_last_seen.items() if now - seen > TRACK_TTL_SECONDS]
         for tid in stale:
+            self.lpr_pipeline.forget(tid)
             self.track_last_seen.pop(tid, None)
             self.track_history.pop(tid, None)
             self.tracked_target_ids.pop(tid, None)
@@ -1544,6 +2480,11 @@ class CameraWorker:
             self.track_lpr_results.pop(tid, None)
             self.track_lpr_max_size.pop(tid, None)
             self.track_lpr_logged.discard(tid)
+            self.track_lpr_candidates.pop(tid, None)
+
+        stale_plates = [p for p, data in list(self.recent_plate_hits.items()) if now - data.get("timestamp", 0) > 30.0]
+        for p in stale_plates:
+            self.recent_plate_hits.pop(p, None)
 
     def get_status_dict(self):
         fps_for_time = self.video_native_fps if self.video_native_fps and self.video_native_fps > 0 else 25.0
@@ -1551,7 +2492,7 @@ class CameraWorker:
         video_position = (self.video_current_frame / fps_for_time) if self.is_video_source else 0
         if video_duration > 0:
             video_position = min(video_position, video_duration)
-            
+
         cam_url_str = str(self.url)
         return {
             "id": self.cam_id,
@@ -1560,6 +2501,7 @@ class CameraWorker:
             "is_enabled": self.is_enabled,
             "stream_state": self.stream_state,
             "fps": round(self.fps, 1),
+            "lpr_health": self.lpr_pipeline.snapshot(),
             "unknown_count": self.unknown_persons_count,
             "line_cross_count": self.line_cross_count,
             "target_stats": target_hit_counts.get(cam_url_str, {}),
@@ -1568,16 +2510,20 @@ class CameraWorker:
             "video_duration": round(video_duration, 1),
             "video_total_frames": self.video_total_frames,
             "video_current_frame": self.video_current_frame,
+            "capture_health": self.cap.status() if isinstance(self.cap, LatestFrameCapture) else None,
             "frame_skip": self.frame_skip,
             "has_zone": self.detection_zone is not None and len(self.detection_zone) >= 3,
             "has_line": self.crossing_line is not None and len(self.crossing_line) == 2
         }
 
     def _run_loop(self):
-        global target_hit_counts, latest_hits, known_face_encodings, known_face_names, model, current_yolo_model
+        global target_hit_counts, latest_hits, known_face_encodings, known_face_names, model, current_yolo_model, detect_any_person, detect_any_vehicle_zone, zone_uncertain_confidence_threshold
         cap = None
-        
+
         while self.running:
+            self.apply_pending_tracking_reset()
+            self._dispatch_ready_lpr_candidates()
+
             if self.stream_state == "stopped":
                 with self.frame_lock:
                     self.latest_annotated_frame = get_black_frame(f"{self.name} (Stopped)")
@@ -1589,7 +2535,7 @@ class CameraWorker:
                     cap = None
                 time.sleep(0.5)
                 continue
-                
+
             if self.reconnect_requested or cap is None or not getattr(cap, "isOpened", lambda: False)():
                 if cap is not None:
                     try:
@@ -1597,12 +2543,13 @@ class CameraWorker:
                     except Exception:
                         pass
                     cap = None
-                    
-                disp = self.url[:25] + "..." if len(self.url) > 25 else self.url
+
+                safe_source = redact_source_url(self.url)
+                disp = safe_source[:25] + "..." if len(safe_source) > 25 else safe_source
                 with self.frame_lock:
                     self.latest_annotated_frame = get_black_frame(f"Connecting to {self.name} ({disp})")
                 time.sleep(1)
-                
+
                 if str(self.url).lower().startswith("screen"):
                     parts = str(self.url).split(":")
                     monitor_idx = 1
@@ -1614,18 +2561,26 @@ class CameraWorker:
                     cap = ScreenGrabber(monitor_index=monitor_idx)
                 else:
                     cam_source = int(self.url) if str(self.url).isdigit() else self.url
-                    cap = cv2.VideoCapture(cam_source, cv2.CAP_FFMPEG if not str(self.url).isdigit() else cv2.CAP_ANY)
-                
+                    if (config.get("satun_async_capture", False)
+                            and urllib.parse.urlsplit(str(cam_source)).path == "/api/live/stream"):
+                        source = str(cam_source)
+                        cap = LatestFrameCapture(lambda: cv2.VideoCapture(
+                            source, cv2.CAP_FFMPEG,
+                            [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
+                             cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000]))
+                    else:
+                        cap = cv2.VideoCapture(cam_source, cv2.CAP_FFMPEG if not str(self.url).isdigit() else cv2.CAP_ANY)
+
                 self.cap = cap
                 self.reconnect_requested = False
-                
+
                 # Detect seekable local video file
                 if str(self.url).startswith("uploads/") and cap.isOpened():
                     self.is_video_source = True
                     self.video_native_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
                     self.video_total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
                     self.video_current_frame = 0
-                    
+
                     success, frame = cap.read()
                     if success:
                         with self.frame_lock:
@@ -1643,7 +2598,7 @@ class CameraWorker:
                                     cv2.fillPoly(overlay, [pts_arr], (255, 0, 255))
                                     cv2.addWeighted(overlay, 0.2, annotated_frame, 0.8, 0, annotated_frame)
                                     cv2.polylines(annotated_frame, [pts_arr], True, (255, 0, 255), 2)
-                            
+
                             annotated_frame = get_black_frame("ระบบหยุดชั่วคราว (รอคำสั่งเริ่ม)", base_frame=annotated_frame)
                             self.latest_annotated_frame = annotated_frame
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1654,7 +2609,7 @@ class CameraWorker:
                     self.video_total_frames = 0
                     self.video_current_frame = 0
                 self.seek_request = None
-                
+
                 if not cap.isOpened():
                     with self.frame_lock:
                         self.latest_annotated_frame = get_black_frame(f"{self.name}: Connection Failed. Retrying...")
@@ -1663,7 +2618,7 @@ class CameraWorker:
 
             prev_time = time.time()
             frame_counter = 0
-            
+
             while cap.isOpened() and not self.reconnect_requested and self.stream_state != "stopped" and self.running:
                 # Seek when paused
                 if self.is_video_source and self.stream_state == "paused":
@@ -1717,7 +2672,7 @@ class CameraWorker:
                         self.video_current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES) or (self.video_current_frame + 1))
                     except:
                         self.video_current_frame += 1
-                    
+
                 if not success or frame is None or getattr(frame, 'size', 0) == 0:
                     if self.is_video_source or str(self.url).startswith("uploads/") or "googlevideo.com" in str(self.url):
                         print(f"[{self.name}] Video ended or reached end of stream. Resetting cleanly.")
@@ -1746,25 +2701,25 @@ class CameraWorker:
 
                 with self.frame_lock:
                     self.latest_raw_frame = frame.copy()
-                    
+
                 target_delay = (1.0 / self.video_native_fps) if (self.is_video_source and self.video_native_fps > 0) else 0.033
 
                 # Frame skipping for AI
                 eff_frame_skip = self.frame_skip if self.frame_skip > 0 else current_frame_skip
                 skip_ai = (eff_frame_skip > 0 and frame_counter % (eff_frame_skip + 1) != 0)
-                
+
                 current_time = time.time()
                 fps = 1 / (current_time - prev_time) if current_time - prev_time > 0 else 0
                 prev_time = current_time
                 self.fps = fps
-                
+
                 if frame_counter % 300 == 0:
                     self.prune_stale(current_time)
-                    
-                target_classes = [0, 1, 2, 3, 5, 7]
+
+                target_classes = ([0] if enable_person_detection else []) + [1, 2, 3, 5, 7]
                 if len(custom_search_terms) > 0:
                     target_classes.extend(range(80, 80 + len(custom_search_terms)))
-                    
+
                 if self.stream_state == "paused":
                     annotated_frame = frame.copy()
                     if self.show_detection_zone:
@@ -1784,7 +2739,7 @@ class CameraWorker:
                         self.latest_annotated_frame = annotated_frame
                     time.sleep(0.05)
                     continue
-                    
+
                 if skip_ai:
                     annotated_frame = frame.copy()
                     if self.show_detection_zone:
@@ -1813,18 +2768,54 @@ class CameraWorker:
                         self.latest_annotated_frame = get_black_frame("YOLO model is not loaded", base_frame=frame)
                     time.sleep(0.5)
                     continue
+                # Small or partially occluded people or vehicles in CCTV footage often score below the
+                # general object threshold. Let person and zone intrusion candidates reach the zone pipeline first.
+                inference_confidence = min_confidence
+                if detect_any_person or (self.detection_zone and detect_any_vehicle_zone):
+                    inference_confidence = min(inference_confidence, PERSON_DETECTION_CONFIDENCE)
+                if enable_lpr:
+                    inference_confidence = min(inference_confidence, LPR_VEHICLE_DETECTION_CONFIDENCE)
+
+                inference_frame = frame
+                inference_offset_x = 0
+                inference_offset_y = 0
+                inference_imgsz = 640
+                if self.detection_zone or enable_lpr:
+                    inference_imgsz = ZONE_INFERENCE_IMGSZ
+
+                has_boxes = False
+                boxes = None
+                cls_ids = None
+                confs = None
+                track_ids = None
+
                 with inference_lock:
                     with torch.inference_mode():
-                        results = model.track(frame, classes=target_classes, conf=min_confidence / 100.0, persist=True, verbose=False, device=DEVICE)
-                
-                if frame_counter % 120 == 0 and DEVICE == "mps":
-                    try:
-                        torch.mps.empty_cache()
-                    except:
-                        pass
-                
+                        results = model.track(
+                            inference_frame,
+                            classes=target_classes,
+                            conf=inference_confidence / 100.0,
+                            imgsz=inference_imgsz,
+                            persist=True,
+                            verbose=False,
+                            device=DEVICE,
+                            tracker="bytetrack.yaml",
+                        )
+                        if results and len(results) > 0 and results[0].boxes is not None and len(results[0].boxes) > 0:
+                            has_boxes = True
+                            boxes = results[0].boxes.xyxy.cpu().numpy().copy()
+                            cls_ids = results[0].boxes.cls.int().cpu().numpy()
+                            confs = results[0].boxes.conf.cpu().numpy()
+                            if results[0].boxes.id is not None:
+                                track_ids = results[0].boxes.id.int().cpu().numpy()
+                        if DEVICE == "mps":
+                            try:
+                                torch.mps.synchronize()
+                            except Exception:
+                                pass
+
                 annotated_frame = frame.copy()
-                
+
                 # Draw detection zone or crossing line
                 if self.show_detection_zone:
                     h_f, w_f = frame.shape[:2]
@@ -1838,18 +2829,30 @@ class CameraWorker:
                         cv2.fillPoly(overlay, [pts_arr], (255, 0, 255))
                         cv2.addWeighted(overlay, 0.2, annotated_frame, 0.8, 0, annotated_frame)
                         cv2.polylines(annotated_frame, [pts_arr], True, (255, 0, 255), 2)
-                
-                if results[0].boxes.id is not None:
-                    boxes = results[0].boxes.xyxy.cpu().numpy()
-                    track_ids = results[0].boxes.id.int().cpu().numpy()
-                    cls_ids = results[0].boxes.cls.int().cpu().numpy()
-                    confs = results[0].boxes.conf.cpu().numpy()
-                    
+
+                if has_boxes and boxes is not None and len(boxes) > 0:
+                    boxes[:, [0, 2]] += inference_offset_x
+                    boxes[:, [1, 3]] += inference_offset_y
+                    if track_ids is None:
+                        track_ids = self._assign_fallback_track_ids(boxes, cls_ids)
+
                     for box, track_id, cls_id, conf in zip(boxes, track_ids, cls_ids, confs):
                         x1, y1, x2, y2 = map(int, box)
                         track_id = int(track_id)
                         cls_id = int(cls_id)
                         conf = float(conf)
+
+                        # The lower inference threshold is for person detection and zone vehicle intrusion candidates.
+                        # Preserve the user-configured threshold for other vehicles/objects outside zone.
+                        is_zone_candidate = bool((self.detection_zone or self.crossing_line) and detect_any_vehicle_zone and cls_id in [1, 2, 3, 5, 7])
+                        if cls_id == 0 or is_zone_candidate:
+                            effective_cls_conf = PERSON_DETECTION_CONFIDENCE / 100.0
+                        elif enable_lpr and cls_id in [1, 2, 3, 5, 7]:
+                            effective_cls_conf = min(min_confidence, LPR_VEHICLE_DETECTION_CONFIDENCE) / 100.0
+                        else:
+                            effective_cls_conf = min_confidence / 100.0
+                        if conf < effective_cls_conf:
+                            continue
                         self.track_last_seen[track_id] = current_time
 
                         # Line crossing check
@@ -1886,9 +2889,15 @@ class CameraWorker:
                                 continue
 
                         label_name = model.names.get(cls_id, "Object")
+                        plate_info = self.track_lpr_results.get(track_id)
+                        plate_text = plate_info.get("plate") if plate_info else None
                         if not show_only_targets:
+                            # ขีดเส้นเขียวบางๆ ใต้วัตถุ (ดีไซน์มินิมอล ไม่รกสายตา)
                             cv2.line(annotated_frame, (x1, y2), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(annotated_frame, f"#{track_id} {label_name} {conf:.2f}", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            if plate_text:
+                                annotated_frame = put_thai_text(annotated_frame, f"#{track_id} {label_name} [{plate_text}]", (x1, min(frame.shape[0] - 10, y2 + 20)), (0, 255, 0))
+                            else:
+                                cv2.putText(annotated_frame, f"#{track_id} {label_name} {conf:.2f}", (x1, min(frame.shape[0] - 10, y2 + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
                         # Custom YOLO-world classes
                         if cls_id >= 80:
@@ -1896,7 +2905,7 @@ class CameraWorker:
                             match_percentage = int(conf * 100)
                             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
                             annotated_frame = put_thai_text(annotated_frame, f"TARGET: {name} (#{track_id})", (x1, y2 + 40), (0, 0, 255))
-                            
+
                             if track_id not in self.tracked_target_ids or self.tracked_target_ids[track_id] != name:
                                 self.tracked_target_ids[track_id] = name
                                 padding = 100
@@ -1904,18 +2913,18 @@ class CameraWorker:
                                 cx1, cy1 = max(0, x1 - padding), max(0, y1 - padding)
                                 cx2, cy2 = min(w_img, x2 + padding), min(h_img, y2 + padding)
                                 v_crop_img = frame[cy1:cy2, cx1:cx2]
-                                
+
                                 timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 img_name = f"{name}_{track_id}_{timestamp_str}.jpg"
                                 img_name_full = f"{name}_{track_id}_{timestamp_str}_full.jpg"
-                                
+
                                 save_high_quality_crop(v_crop_img, os.path.join('alerts', img_name))
                                 cv2.imwrite(os.path.join('alerts', img_name_full), annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                                
+
                                 cam_url_str = str(self.url)
                                 if cam_url_str not in target_hit_counts: target_hit_counts[cam_url_str] = {}
                                 target_hit_counts[cam_url_str][name] = target_hit_counts[cam_url_str].get(name, 0) + 1
-                                
+
                                 hit_info_name = f"{name} (#{track_id})"
                                 hit_info = {
                                     "name": hit_info_name,
@@ -1930,7 +2939,7 @@ class CameraWorker:
                                 if cam_url_str not in latest_hits: latest_hits[cam_url_str] = []
                                 latest_hits[cam_url_str].insert(0, hit_info)
                                 if len(latest_hits[cam_url_str]) > 10: latest_hits[cam_url_str].pop()
-                                
+
                                 try:
                                     with get_db_connection() as conn:
                                         cursor = conn.cursor()
@@ -1942,13 +2951,14 @@ class CameraWorker:
                                         conn.commit()
                                 except Exception as e:
                                     print(f"Error saving to DB: {e}")
-                                    
+
                                 send_telegram_alert_async(
                                     target_type="object",
                                     target_name=name,
                                     match_pct=match_percentage,
                                     camera_name=self.name,
-                                    live_crop_img=v_crop_img
+                                    live_crop_img=v_crop_img,
+                                    wide_frame_img=annotated_frame,
                                 )
 
                         # Vehicle & LPR
@@ -1957,93 +2967,38 @@ class CameraWorker:
                             is_legacy_match = False
                             v_name = ""
                             match_percentage = int(round(conf * 100))
-                            
+
                             if cls_id in [1, 2, 3, 5, 7]:
                                 vehicle_types = {1: "รถจักรยาน", 2: "รถเก๋ง", 3: "รถมอเตอร์ไซค์", 5: "รถบัส", 7: "รถกระบะ"}
                                 v_type = vehicle_types.get(cls_id, "รถยนต์")
-                                v_crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-                                
+                                h_frame, w_frame = frame.shape[:2]
+                                if cls_id == 3:
+                                    pad_b = int((y2 - y1) * 0.18)
+                                    pad_lr = int((x2 - x1) * 0.12)
+                                    v_crop = frame[max(0, y1):min(h_frame, y2 + pad_b), max(0, x1 - pad_lr):min(w_frame, x2 + pad_lr)]
+                                else:
+                                    v_crop = frame[max(0, y1):min(h_frame, y2), max(0, x1):min(w_frame, x2)]
+
                                 if v_crop.size > 0:
                                     v_color = get_vehicle_color(v_crop)
                                     plate_text = None
                                     plate_img_name = None
-                                    
+
                                     if enable_lpr:
-                                        if track_id in self.track_lpr_results:
-                                            plate_text = self.track_lpr_results[track_id]["plate"]
-                                            plate_img_name = self.track_lpr_results[track_id]["plate_img_name"]
-                                        else:
-                                            curr_size = v_crop.shape[0] * v_crop.shape[1]
-                                            prev_size = self.track_lpr_max_size.get(track_id, 0)
-                                            if curr_size > prev_size * 1.3:
-                                                self.track_lpr_attempts[track_id] = 0
-                                                self.track_lpr_max_size[track_id] = curr_size
-                                            if (self.track_lpr_attempts.get(track_id, 0) < 5 and
-                                                v_crop.shape[1] >= 100 and v_crop.shape[0] >= 100 and
-                                                (time.time() - self.track_lpr_last_time.get(track_id, 0.0)) >= 0.4):
-                                                self.track_lpr_last_time[track_id] = time.time()
-                                                self.track_lpr_attempts[track_id] = self.track_lpr_attempts.get(track_id, 0) + 1
-                                                if track_id not in self.track_lpr_max_size:
-                                                    self.track_lpr_max_size[track_id] = curr_size
-                                                reader = _get_lpr_reader()
-                                                if reader is not None:
-                                                    try:
-                                                        vh, vw = v_crop.shape[:2]
-                                                        lower_half = v_crop[int(vh * 0.45):vh, 0:vw]
-                                                        upscaled = cv2.resize(lower_half, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                                                        ycrcb = cv2.cvtColor(upscaled, cv2.COLOR_BGR2YCrCb)
-                                                        ch = list(cv2.split(ycrcb))
-                                                        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-                                                        ch[0] = clahe.apply(ch[0])
-                                                        ycrcb = cv2.merge(ch)
-                                                        processed_plate = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
-                                                        processed_plate = cv2.bilateralFilter(processed_plate, 9, 75, 75)
-                                                        
-                                                        with inference_lock:
-                                                            ocr_res = reader.readtext(processed_plate)
-                                                        
-                                                        raw_runs = []
-                                                        for bbox, text, ocr_conf in ocr_res:
-                                                            cleaned_seg = re.sub(r'[^ก-ฮ0-9a-zA-Zก-๙]', '', text).strip()
-                                                            if len(cleaned_seg) >= 1 and ocr_conf >= 0.20:
-                                                                raw_runs.append((bbox, cleaned_seg, ocr_conf))
-                                                                
-                                                        if raw_runs:
-                                                            valid_runs = sort_detections_by_reading_order(raw_runs)
-                                                            combined_raw = "".join([x[1] for x in valid_runs])
-                                                            combined_text = correct_thai_license_plate(combined_raw)
-                                                            avg_conf = sum([x[2] for x in valid_runs]) / len(valid_runs)
-                                                            
-                                                            if is_valid_combined_plate(combined_text) and avg_conf >= 0.30:
-                                                                all_pts = []
-                                                                for bbox_pts, _, _ in valid_runs:
-                                                                    for pt in bbox_pts:
-                                                                        all_pts.append(pt)
-                                                                all_pts = np.array(all_pts)
-                                                                px1, py1 = int(np.min(all_pts[:, 0]) / 2.0), int(np.min(all_pts[:, 1]) / 2.0)
-                                                                px2, py2 = int(np.max(all_pts[:, 0]) / 2.0), int(np.max(all_pts[:, 1]) / 2.0)
-                                                                
-                                                                pad_px, pad_py = 10, 10
-                                                                px1 = max(0, px1 - pad_px)
-                                                                py1 = max(0, py1 - pad_py)
-                                                                px2 = min(vw, px2 + pad_px)
-                                                                py2 = min(vh - int(vh * 0.45), py2 + pad_py)
-                                                                
-                                                                plate_crop = lower_half[py1:py2, px1:px2]
-                                                                if plate_crop.size > 0:
-                                                                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                                                    p_name = f"plate_{track_id}_{timestamp_str}.jpg"
-                                                                    save_high_quality_crop(plate_crop, os.path.join('alerts', p_name))
-                                                                    plate_img_name = p_name
-                                                                    
-                                                                self.track_lpr_results[track_id] = {
-                                                                    "plate": combined_text,
-                                                                    "plate_img_name": plate_img_name,
-                                                                    "conf": int(avg_conf * 100)
-                                                                }
-                                                                plate_text = combined_text
-                                                    except Exception as e:
-                                                        print(f"LPR Error: {e}")
+                                        plate_state = self.track_lpr_results.get(track_id)
+                                        if plate_state:
+                                            plate_text = plate_state.get("plate")
+                                            plate_img_name = plate_state.get("plate_img_name")
+                                        if not plate_state or plate_state.get("status") in ACTIVE:
+                                            self._offer_lpr_candidate(
+                                                track_id,
+                                                v_crop,
+                                                frame,
+                                                annotated_frame,
+                                                (x1, y1, x2, y2),
+                                                conf,
+                                                cls_id=cls_id,
+                                            )
 
                                     # Vehicle matching
                                     with vehicle_targets_lock:
@@ -2051,17 +3006,21 @@ class CameraWorker:
                                         curr_v_embeds = dict(vehicle_target_embeddings)
                                     with plate_targets_lock:
                                         curr_p_targets = list(plate_targets)
-                                        
+
                                     is_plate_match = False
                                     matched_plate_target = None
-                                    if plate_text and len(curr_p_targets) > 0:
+                                    plate_is_verified = bool(
+                                        plate_text
+                                        and self.track_lpr_results.get(track_id, {}).get("status") == "verified"
+                                    )
+                                    if plate_is_verified and len(curr_p_targets) > 0:
                                         for pt in curr_p_targets:
                                             target_plate = pt.get("plate", "").replace(" ", "").strip()
-                                            if target_plate and target_plate in plate_text.replace(" ", "").strip():
+                                            if plate_matches_target(plate_text, target_plate):
                                                 is_plate_match = True
                                                 matched_plate_target = pt
                                                 break
-                                                
+
                                     if is_plate_match:
                                         is_target_vehicle = True
                                         v_name = f"{matched_plate_target.get('name', 'เป้าหมายป้ายทะเบียน')} ({plate_text})"
@@ -2077,9 +3036,15 @@ class CameraWorker:
                                             has_embed = fn and fn in curr_v_embeds
                                             type_ok = vehicle_types_compatible(v_type, target_type)
                                             color_ok = vehicle_colors_compatible(v_color, target_color)
-                                            
+
                                             if has_embed and v_emb is not None:
                                                 if not type_ok:
+                                                    continue
+                                                # ตรวจสอบสีร่วมด้วย (หากระบุสีเป้าหมายไว้ เช่น สีน้ำเงิน) ป้องกันรถสีอื่นหลุดเข้ามา
+                                                if target_color and target_color not in ["ไม่ระบุ", "ไม่ระบุสี", ""] and not color_ok:
+                                                    continue
+                                                # ตัดวัตถุที่อยู่ไกลเกินไปหรือเล็กเกินไป (< 45px) ซึ่งความละเอียดต่ำเกินกว่าจะวิเคราะห์ Re-ID
+                                                if v_crop.shape[0] < 45 or v_crop.shape[1] < 45:
                                                     continue
                                                 sim = vehicle_similarity(v_emb, curr_v_embeds[fn])
                                                 if sim >= (vehicle_match_threshold / 100.0):
@@ -2088,7 +3053,7 @@ class CameraWorker:
                                             elif type_ok and color_ok:
                                                 if legacy_match is None:
                                                     legacy_match = vt.get("raw") or f"{target_type}{target_color}"
-                                                    
+
                                         if best_visual is not None:
                                             is_target_vehicle = True
                                             v_name = best_visual[1]
@@ -2106,17 +3071,17 @@ class CameraWorker:
                                             display_name = f"{name} (สี+ประเภท?)"
                                         if plate_text:
                                             display_name = f"{display_name} [ทะเบียน: {plate_text}]"
-                                            
+
                                         cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
                                         annotated_frame = put_thai_text(annotated_frame, f"TARGET: {display_name} (#{track_id})", (x1, y2 + 40), (0, 0, 255))
-                                        
+
                                         # Check if this vehicle track_id has already been logged
                                         already_logged = (track_id in self.tracked_target_ids)
-                                        
+
                                         # Filter out degraded edge-clipped snapshots when car is leaving the frame
                                         h_img, w_img = frame.shape[:2]
                                         is_at_border = (x1 <= 15 or y1 <= 15 or x2 >= w_img - 15 or y2 >= h_img - 15)
-                                        
+
                                         if not already_logged and not is_at_border:
                                             self.tracked_target_ids[track_id] = name
                                             self.track_lpr_logged.add(track_id)
@@ -2124,18 +3089,18 @@ class CameraWorker:
                                             cx1, cy1 = max(0, x1 - padding), max(0, y1 - padding)
                                             cx2, cy2 = min(w_img, x2 + padding), min(h_img, y2 + padding)
                                             v_crop_img = frame[cy1:cy2, cx1:cx2]
-                                            
+
                                             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                                             img_name = f"vehicle_{track_id}_{timestamp_str}.jpg"
                                             img_name_full = f"vehicle_{track_id}_{timestamp_str}_full.jpg"
-                                            
+
                                             save_high_quality_crop(v_crop_img, os.path.join('alerts', img_name))
                                             cv2.imwrite(os.path.join('alerts', img_name_full), annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                                            
+
                                             cam_url_str = str(self.url)
                                             if cam_url_str not in target_hit_counts: target_hit_counts[cam_url_str] = {}
                                             target_hit_counts[cam_url_str][name] = target_hit_counts[cam_url_str].get(name, 0) + 1
-                                            
+
                                             hit_info_name = f"{name} (#{track_id})"
                                             hit_info = {
                                                 "name": hit_info_name,
@@ -2152,7 +3117,7 @@ class CameraWorker:
                                             if cam_url_str not in latest_hits: latest_hits[cam_url_str] = []
                                             latest_hits[cam_url_str].insert(0, hit_info)
                                             if len(latest_hits[cam_url_str]) > 10: latest_hits[cam_url_str].pop()
-                                            
+
                                             try:
                                                 with get_db_connection() as conn:
                                                     cursor = conn.cursor()
@@ -2164,7 +3129,7 @@ class CameraWorker:
                                                     conn.commit()
                                             except Exception as e:
                                                 print(f"Error saving to DB: {e}")
-                                                
+
                                             target_veh_img = find_target_vehicle_image_path(name)
                                             send_telegram_alert_async(
                                                 target_type="vehicle",
@@ -2173,72 +3138,108 @@ class CameraWorker:
                                                 camera_name=self.name,
                                                 live_crop_img=v_crop_img,
                                                 target_img_path=target_veh_img,
-                                                plate_text=plate_text
+                                                plate_text=plate_text,
+                                                plate_img_path=os.path.join('alerts', plate_img_name) if plate_img_name else None,
+                                                wide_frame_img=annotated_frame,
                                             )
-                                    
-                                    elif plate_text and track_id not in self.track_lpr_logged and track_id not in self.tracked_target_ids:
-                                        self.track_lpr_logged.add(track_id)
-                                        padding = 100
+                                    elif (self.detection_zone or self.crossing_line) and detect_any_vehicle_zone and track_id not in self.tracked_target_ids:
+                                        match_percentage = int(round(conf * 100))
+                                        is_uncertain = (match_percentage < zone_uncertain_confidence_threshold)
+                                        if self.crossing_line:
+                                            if is_uncertain:
+                                                vehicle_event_name = f"วัตถุต้องสงสัย/ยานพาหนะข้ามเส้น ({v_type})"
+                                                box_label = f"LINE: วัตถุต้องสงสัย ({v_type}) (#{track_id}) {match_percentage}%"
+                                                box_color = (0, 215, 255) # Yellow/Gold
+                                            else:
+                                                vehicle_event_name = f"ยานพาหนะข้ามเส้น ({v_type})"
+                                                box_label = f"LINE: ยานพาหนะข้ามเส้น ({v_type}) (#{track_id}) {match_percentage}%"
+                                                box_color = (0, 165, 255) # Orange-Yellow
+                                            detection_type = "line_cross"
+                                        else:
+                                            if is_uncertain:
+                                                vehicle_event_name = f"วัตถุต้องสงสัย/ยานพาหนะในพื้นที่ ({v_type})"
+                                                box_label = f"ZONE: วัตถุต้องสงสัย ({v_type}) (#{track_id}) {match_percentage}%"
+                                                box_color = (0, 215, 255) # Yellow/Gold
+                                            else:
+                                                vehicle_event_name = f"ยานพาหนะในพื้นที่ ({v_type})"
+                                                box_label = f"ZONE: ยานพาหนะในพื้นที่ ({v_type}) (#{track_id}) {match_percentage}%"
+                                                box_color = (255, 0, 255) # Magenta/Pink Zone match
+                                            detection_type = "zone_entry"
+
+                                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 3)
+                                        annotated_frame = put_thai_text(annotated_frame, box_label, (x1, y2 + 25), box_color)
+
+                                        self.tracked_target_ids[track_id] = vehicle_event_name
+                                        padding = 80
                                         h_img, w_img = frame.shape[:2]
                                         cx1, cy1 = max(0, x1 - padding), max(0, y1 - padding)
                                         cx2, cy2 = min(w_img, x2 + padding), min(h_img, y2 + padding)
-                                        v_crop_img = frame[cy1:cy2, cx1:cx2]
-                                        
+                                        vehicle_crop_img = frame[cy1:cy2, cx1:cx2]
+
                                         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                        img_name = f"lpr_{track_id}_{timestamp_str}.jpg"
-                                        img_name_full = f"lpr_{track_id}_{timestamp_str}_full.jpg"
-                                        
-                                        save_high_quality_crop(v_crop_img, os.path.join('alerts', img_name))
+                                        img_name = f"vehicle_zone_{track_id}_{timestamp_str}.jpg"
+                                        img_name_full = f"vehicle_zone_{track_id}_{timestamp_str}_full.jpg"
+
+                                        save_high_quality_crop(vehicle_crop_img, os.path.join('alerts', img_name))
                                         cv2.imwrite(os.path.join('alerts', img_name_full), annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                                        
+
                                         cam_url_str = str(self.url)
-                                        hit_info_name = f"[LPR] {plate_text} (#{track_id})"
+                                        if cam_url_str not in target_hit_counts:
+                                            target_hit_counts[cam_url_str] = {}
+                                        target_hit_counts[cam_url_str][vehicle_event_name] = target_hit_counts[cam_url_str].get(vehicle_event_name, 0) + 1
+
+                                        hit_info_name = f"{vehicle_event_name} (#{track_id})"
                                         hit_info = {
                                             "name": hit_info_name,
                                             "time": datetime.now().strftime("%H:%M:%S"),
-                                            "confidence": self.track_lpr_results.get(track_id, {}).get("conf", 80),
+                                            "confidence": match_percentage,
                                             "img_url": f"http://localhost:8081/alerts_img/{img_name}",
                                             "full_url": f"http://localhost:8081/alerts_img/{img_name_full}",
                                             "is_color_edited": 0,
-                                            "plate_img_url": f"http://localhost:8081/alerts_img/{plate_img_name}" if plate_img_name else None,
-                                            "license_plate": plate_text,
+                                            "target_type": "vehicle",
+                                            "detection_type": detection_type,
                                             "camera_id": self.cam_id,
                                             "camera_name": self.name
                                         }
-                                        if cam_url_str not in latest_hits: latest_hits[cam_url_str] = []
+                                        if cam_url_str not in latest_hits:
+                                            latest_hits[cam_url_str] = []
                                         latest_hits[cam_url_str].insert(0, hit_info)
-                                        if len(latest_hits[cam_url_str]) > 10: latest_hits[cam_url_str].pop()
-                                        
+                                        if len(latest_hits[cam_url_str]) > 10:
+                                            latest_hits[cam_url_str].pop()
+
                                         try:
                                             with get_db_connection() as conn:
                                                 cursor = conn.cursor()
                                                 cursor.execute('''
-                                                    INSERT INTO hits (camera_url, name, timestamp, confidence, img_url, full_url, plate_img_url, license_plate)
-                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                                ''', (cam_url_str, hit_info_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), hit_info["confidence"], hit_info["img_url"], hit_info["full_url"], hit_info["plate_img_url"], hit_info["license_plate"]))
+                                                    INSERT INTO hits (camera_url, name, timestamp, confidence, img_url, full_url)
+                                                    VALUES (?, ?, ?, ?, ?, ?)
+                                                ''', (cam_url_str, hit_info_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), match_percentage, hit_info["img_url"], hit_info["full_url"]))
                                                 hit_info["id"] = cursor.lastrowid
                                                 conn.commit()
                                         except Exception as e:
-                                            print(f"Error saving LPR hit to DB: {e}")
-                                        
+                                            print(f"Error saving vehicle zone hit to DB: {e}")
+
                                         send_telegram_alert_async(
-                                            target_type="plate",
-                                            target_name=f"ป้ายทะเบียน {plate_text}",
-                                            match_pct=self.track_lpr_results.get(track_id, {}).get("conf", 80),
+                                            target_type="zone",
+                                            target_name=hit_info_name,
+                                            match_pct=match_percentage,
                                             camera_name=self.name,
-                                            live_crop_img=v_crop_img,
-                                            plate_text=plate_text
+                                            live_crop_img=vehicle_crop_img,
+                                            wide_frame_img=annotated_frame
                                         )
 
                                 if track_id not in self.tracked_ids:
                                     self.tracked_ids.add(track_id)
                             continue
 
+                        if not enable_person_detection:
+                            continue
+
                         # Person Face Recognition (cls_id == 0)
                         person_crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
                         if person_crop.size == 0:
                             continue
-                            
+
                         rgb_person = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
                         crop_min_side = min(person_crop.shape[0], person_crop.shape[1])
                         if crop_min_side >= 300:
@@ -2247,17 +3248,17 @@ class CameraWorker:
                             fr_upsample = 1
                         else:
                             fr_upsample = 2
-                            
-                        face_locations = face_recognition.face_locations(rgb_person, model="hog", number_of_times_to_upsample=fr_upsample)
+
+                        face_locations = safe_face_locations(rgb_person, model="hog", number_of_times_to_upsample=fr_upsample)
                         is_target = False
-                        
+
                         if face_locations:
                             with targets_lock:
                                 curr_face_encodings = list(known_face_encodings)
                                 curr_face_names = list(known_face_names)
-                                
+
                             if len(curr_face_encodings) > 0:
-                                face_encodings = face_recognition.face_encodings(rgb_person, face_locations)
+                                face_encodings = safe_face_encodings(rgb_person, face_locations)
                                 match_tolerance = 1.0 - (face_match_threshold / 100.0)
                                 for face_encoding, (top, right, bottom, left) in zip(face_encodings, face_locations):
                                     face_distances = face_recognition.face_distance(curr_face_encodings, face_encoding)
@@ -2265,20 +3266,20 @@ class CameraWorker:
                                         best_match_index = int(np.argmin(face_distances))
                                         best_distance = float(face_distances[best_match_index])
                                         name = curr_face_names[best_match_index]
-                                        
+
                                         other_distances = [d for d, nm in zip(face_distances, curr_face_names) if nm != name]
                                         is_ambiguous = bool(other_distances) and (min(other_distances) - best_distance) < FACE_MATCH_MARGIN
-                                        
+
                                         if best_distance <= match_tolerance and not is_ambiguous:
                                             match_percentage = round((1 - best_distance) * 100)
                                             is_target = True
-                                            
+
                                             fx1, fy1 = x1 + left, y1 + top
                                             fx2, fy2 = x1 + right, y1 + bottom
-                                            
+
                                             cv2.rectangle(annotated_frame, (fx1, fy1), (fx2, fy2), (0, 0, 255), 3)
                                             annotated_frame = put_thai_text(annotated_frame, f"TARGET: {name} (#{track_id})", (fx1, fy2 + 25), (0, 0, 255))
-                                            
+
                                             if track_id not in self.tracked_target_ids or self.tracked_target_ids[track_id] != name:
                                                 self.tracked_target_ids[track_id] = name
                                                 padding = 100
@@ -2286,19 +3287,19 @@ class CameraWorker:
                                                 cx1, cy1 = max(0, x1 - padding), max(0, y1 - padding)
                                                 cx2, cy2 = min(w, x2 + padding), min(h, y2 + padding)
                                                 face_crop_img = frame[cy1:cy2, cx1:cx2]
-                                                
+
                                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                                                 img_name = f"{name}_{track_id}_{timestamp}.jpg"
                                                 img_name_full = f"{name}_{track_id}_{timestamp}_full.jpg"
-                                                
+
                                                 save_high_quality_crop(face_crop_img, os.path.join('alerts', img_name))
                                                 cv2.imwrite(os.path.join('alerts', img_name_full), annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                                                
+
                                                 cam_url_str = str(self.url)
                                                 if cam_url_str not in target_hit_counts:
                                                     target_hit_counts[cam_url_str] = {}
                                                 target_hit_counts[cam_url_str][name] = target_hit_counts[cam_url_str].get(name, 0) + 1
-                                                
+
                                                 hit_info_name = f"{name} (#{track_id})"
                                                 hit_info = {
                                                     "name": hit_info_name,
@@ -2314,7 +3315,7 @@ class CameraWorker:
                                                     latest_hits[cam_url_str] = []
                                                 latest_hits[cam_url_str].insert(0, hit_info)
                                                 if len(latest_hits[cam_url_str]) > 10: latest_hits[cam_url_str].pop()
-                                                
+
                                                 try:
                                                     with get_db_connection() as conn:
                                                         cursor = conn.cursor()
@@ -2326,7 +3327,7 @@ class CameraWorker:
                                                         conn.commit()
                                                 except Exception as e:
                                                     print(f"Error saving to DB: {e}")
-                                                    
+
                                                 target_face_img = find_target_face_image_path(name)
                                                 send_telegram_alert_async(
                                                     target_type="face",
@@ -2334,20 +3335,117 @@ class CameraWorker:
                                                     match_pct=match_percentage,
                                                     camera_name=self.name,
                                                     live_crop_img=face_crop_img,
-                                                    target_img_path=target_face_img
+                                                    target_img_path=target_face_img,
+                                                    wide_frame_img=annotated_frame,
                                                 )
+
+                        if not is_target and detect_any_person:
+                            match_percentage = int(round(conf * 100))
+                            is_uncertain = (match_percentage < zone_uncertain_confidence_threshold)
+
+                            if self.crossing_line:
+                                if is_uncertain:
+                                    person_name = "วัตถุต้องสงสัย/บุคคลข้ามเส้น"
+                                    detection_type = "line_cross"
+                                    box_label = f"LINE: วัตถุต้องสงสัย (#{track_id}) {match_percentage}%"
+                                    box_color = (0, 215, 255) # Yellow/Gold
+                                else:
+                                    person_name = "บุคคลข้ามเส้น"
+                                    detection_type = "line_cross"
+                                    box_label = f"LINE: บุคคลข้ามเส้น (#{track_id}) {match_percentage}%"
+                                    box_color = (0, 165, 255) # Orange-Yellow
+                            elif self.detection_zone:
+                                if is_uncertain:
+                                    person_name = "วัตถุต้องสงสัย/บุคคลในพื้นที่"
+                                    detection_type = "zone_uncertain"
+                                    box_label = f"ZONE: วัตถุต้องสงสัย (#{track_id}) {match_percentage}%"
+                                    box_color = (0, 215, 255) # Yellow/Gold
+                                else:
+                                    person_name = "บุคคลในพื้นที่"
+                                    detection_type = "zone_entry"
+                                    box_label = f"ZONE: บุคคลในพื้นที่ (#{track_id}) {match_percentage}%"
+                                    box_color = (255, 0, 255) # Magenta/Pink Zone match
+                            else:
+                                person_name = "บุคคลทั่วไป"
+                                detection_type = "general"
+                                box_label = f"TARGET: บุคคล (#{track_id}) {match_percentage}%"
+                                box_color = (255, 140, 0) # Amber-Orange
+
+                            # Draw TARGET box for detected person on annotated_frame
+                            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 3)
+                            annotated_frame = put_thai_text(annotated_frame, box_label, (x1, y2 + 25), box_color)
+
+                            if track_id not in self.tracked_target_ids or self.tracked_target_ids[track_id] != person_name:
+                                self.tracked_target_ids[track_id] = person_name
+                                padding = 80
+                                h_img, w_img = frame.shape[:2]
+                                cx1, cy1 = max(0, x1 - padding), max(0, y1 - padding)
+                                cx2, cy2 = min(w_img, x2 + padding), min(h_img, y2 + padding)
+                                person_crop_img = frame[cy1:cy2, cx1:cx2]
+
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                img_name = f"person_{track_id}_{timestamp}.jpg"
+                                img_name_full = f"person_{track_id}_{timestamp}_full.jpg"
+
+                                save_high_quality_crop(person_crop_img, os.path.join('alerts', img_name))
+                                cv2.imwrite(os.path.join('alerts', img_name_full), annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+
+                                cam_url_str = str(self.url)
+                                if cam_url_str not in target_hit_counts:
+                                    target_hit_counts[cam_url_str] = {}
+                                target_hit_counts[cam_url_str][person_name] = target_hit_counts[cam_url_str].get(person_name, 0) + 1
+
+                                hit_info_name = f"{person_name} (#{track_id})"
+                                hit_info = {
+                                    "name": hit_info_name,
+                                    "time": datetime.now().strftime("%H:%M:%S"),
+                                    "confidence": match_percentage,
+                                    "img_url": f"http://localhost:8081/alerts_img/{img_name}",
+                                    "full_url": f"http://localhost:8081/alerts_img/{img_name_full}",
+                                    "is_color_edited": 0,
+                                    "target_type": "person",
+                                    "detection_type": detection_type,
+                                    "camera_id": self.cam_id,
+                                    "camera_name": self.name
+                                }
+                                if cam_url_str not in latest_hits:
+                                    latest_hits[cam_url_str] = []
+                                latest_hits[cam_url_str].insert(0, hit_info)
+                                if len(latest_hits[cam_url_str]) > 10:
+                                    latest_hits[cam_url_str].pop()
+
+                                try:
+                                    with get_db_connection() as conn:
+                                        cursor = conn.cursor()
+                                        cursor.execute('''
+                                            INSERT INTO hits (camera_url, name, timestamp, confidence, img_url, full_url)
+                                            VALUES (?, ?, ?, ?, ?, ?)
+                                        ''', (cam_url_str, hit_info_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), match_percentage, hit_info["img_url"], hit_info["full_url"]))
+                                        hit_info["id"] = cursor.lastrowid
+                                        conn.commit()
+                                except Exception as e:
+                                    print(f"Error saving person hit to DB: {e}")
+
+                                send_telegram_alert_async(
+                                    target_type="zone" if (self.detection_zone or self.crossing_line) else "person",
+                                    target_name=hit_info_name,
+                                    match_pct=match_percentage,
+                                    camera_name=self.name,
+                                    live_crop_img=person_crop_img,
+                                    wide_frame_img=annotated_frame,
+                                )
 
                         if track_id not in self.tracked_ids:
                             self.tracked_ids.add(track_id)
                             if not is_target:
                                 self.unknown_persons_count += 1
-                                if save_unknown_faces:
+                                if save_unknown_faces and not detect_any_person:
                                     try:
                                         timestamp_unknown = int(time.time())
                                         img_name_unknown = f"unknown_{track_id}_{timestamp_unknown}.jpg"
                                         full_path_unknown = os.path.join('alerts', img_name_unknown)
                                         cv2.imwrite(full_path_unknown, frame)
-                                        
+
                                         cam_url_str = str(self.url)
                                         url_unknown = f"http://localhost:8081/alerts_img/{img_name_unknown}"
                                         with get_db_connection() as conn:
@@ -2361,12 +3459,25 @@ class CameraWorker:
                                         print(f"Error saving unknown to DB: {e}")
 
                 with self.frame_lock:
-                    self.latest_annotated_frame = annotated_frame.copy()
+                    self.latest_annotated_frame = annotated_frame
 
                 if self.is_video_source:
                     elapsed = time.time() - current_time
                     if elapsed < target_delay:
                         time.sleep(target_delay - elapsed)
+                    else:
+                        # AI/OCR can take longer than the source frame interval.
+                        # Advance the file clock instead of turning playback into
+                        # slow motion.  Live/screen sources already return the
+                        # newest available frame on their next read.
+                        drop_count = video_catchup_frames(elapsed, self.video_native_fps)
+                        if drop_count > 0 and self.video_total_frames > 0:
+                            target_frame = min(
+                                self.video_total_frames - 1,
+                                self.video_current_frame + drop_count,
+                            )
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                            self.video_current_frame = target_frame
 
 class CameraManager:
     def __init__(self):
@@ -2379,21 +3490,22 @@ class CameraManager:
         if not cams:
             cams = DEFAULT_CAMERAS
             save_cameras(cams)
-            
+
         with self.lock:
             for cam in cams:
                 cid = cam.get("id")
                 if not cid:
                     cid = f"cam_{int(time.time())}_{len(self.workers)}"
                     cam["id"] = cid
-                worker = CameraWorker(cid, cam.get("name", cid), cam.get("url", "0"), cam.get("config", {}))
+                cam_cfg = dict(cam.get("config") or {})
+                for k, v in cam.items():
+                    if k not in ["id", "name", "url", "config"]:
+                        cam_cfg[k] = v
+                worker = CameraWorker(cid, cam.get("name", cid), cam.get("url", "0"), cam_cfg)
                 self.workers[cid] = worker
                 worker.start()
-                
-            if cams:
-                self.active_cam_id = cams[0]["id"]
-                if self.active_cam_id in self.workers:
-                    self.workers[self.active_cam_id].play()
+
+            self.active_cam_id = None
 
     def get_worker(self, cam_id_or_url=None):
         with self.lock:
@@ -2402,12 +3514,15 @@ class CameraManager:
             if cam_id_or_url is None or cam_id_or_url == "" or cam_id_or_url == "default":
                 if self.active_cam_id and self.active_cam_id in self.workers:
                     return self.workers[self.active_cam_id]
-                return next(iter(self.workers.values()))
-            
+                for w in self.workers.values():
+                    if getattr(w, "stream_state", "") == "playing":
+                        return w
+                return next(iter(self.workers.values())) if self.workers else None
+
             # Lookup by id
             if cam_id_or_url in self.workers:
                 return self.workers[cam_id_or_url]
-            
+
             # Lookup by url
             for w in self.workers.values():
                 if str(w.url) == str(cam_id_or_url):
@@ -2439,11 +3554,11 @@ class CameraManager:
                 if str(w.url) == str(url):
                     w.name = name
                     return w
-            cid = f"cam_{int(time.time())}"
+            cid = f"cam_{time.time_ns()}"
             worker = CameraWorker(cid, name, url)
             self.workers[cid] = worker
             worker.start()
-            
+
             cams = load_cameras()
             cams.append({"id": cid, "name": name, "url": url})
             save_cameras(cams)
@@ -2454,15 +3569,38 @@ class CameraManager:
             if cam_id in self.workers:
                 w = self.workers.pop(cam_id)
                 w.close()
-                
+
                 cams = load_cameras()
                 cams = [c for c in cams if c.get("id") != cam_id]
                 save_cameras(cams)
-                
+
                 if self.active_cam_id == cam_id:
                     self.active_cam_id = next(iter(self.workers.keys())) if self.workers else None
                 return True
             return False
+
+    def save_to_file(self):
+        with self.lock:
+            cams = []
+            for w in self.workers.values():
+                cfg = dict(w.cam_config)
+                cfg["id"] = w.cam_id
+                cfg["name"] = w.name
+                cfg["url"] = w.url
+                cfg["frame_skip"] = w.frame_skip
+                if w.detection_zone is not None:
+                    cfg["detection_zone"] = w.detection_zone
+                elif "detection_zone" in cfg:
+                    cfg.pop("detection_zone", None)
+                if w.crossing_line is not None:
+                    cfg["crossing_line"] = w.crossing_line
+                    cfg["crossing_direction"] = w.crossing_direction
+                elif "crossing_line" in cfg:
+                    cfg.pop("crossing_line", None)
+                    cfg.pop("crossing_direction", None)
+                cfg["show_detection_zone"] = w.show_detection_zone
+                cams.append(cfg)
+            save_cameras(cams)
 
     def play_all(self):
         with self.lock:
@@ -2506,26 +3644,68 @@ class CameraManager:
         with self.lock:
             return [w.get_status_dict() for w in self.workers.values()]
 
+    def request_tracking_reset(self, camera_urls=None):
+        selected_urls = set(str(url) for url in camera_urls) if camera_urls else None
+        with self.lock:
+            for worker in self.workers.values():
+                if selected_urls is None or str(worker.url) in selected_urls:
+                    worker.request_tracking_reset()
+
 camera_manager = CameraManager()
 camera_manager.initialize_from_json()
 
+def reset_detection_runtime_after_history_clear(camera_urls=None):
+    """Re-arm cameras whose persisted detection history was fully cleared."""
+    global unknown_persons_count, line_cross_count
+
+    selected_urls = set(str(url) for url in camera_urls) if camera_urls else None
+    if selected_urls is None:
+        latest_hits.clear()
+        target_hit_counts.clear()
+    else:
+        for camera_url in selected_urls:
+            latest_hits.pop(camera_url, None)
+            target_hit_counts.pop(camera_url, None)
+
+    tracked_ids.clear()
+    tracked_target_ids.clear()
+    track_last_seen.clear()
+    track_history.clear()
+    track_lpr_attempts.clear()
+    track_lpr_last_time.clear()
+    track_lpr_results.clear()
+    track_lpr_max_size.clear()
+    track_lpr_logged.clear()
+    unknown_persons_count = 0
+    line_cross_count = 0
+    camera_manager.request_tracking_reset(selected_urls)
+
 def generate_frames_for_cam(cam_id=None):
+    placeholder_cache = JpegFrameCache(quality=80)
     while True:
         worker = camera_manager.get_worker(cam_id)
         frame_to_send = None
         if worker:
             with worker.frame_lock:
                 if worker.latest_annotated_frame is not None:
-                    frame_to_send = worker.latest_annotated_frame.copy()
-        
+                    frame_to_send = worker.latest_annotated_frame
+
         if frame_to_send is None:
-            name = worker.name if worker else (cam_id or "Camera")
-            frame_to_send = get_black_frame(f"Connecting to {name}...")
-            
-        ret, buffer = cv2.imencode('.jpg', frame_to_send, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if ret:
+            if worker:
+                frame_to_send = get_black_frame(f"Connecting to {worker.name}...")
+            elif cam_id:
+                frame_to_send = get_black_frame(f"Connecting to {cam_id}...")
+            else:
+                frame_to_send = get_black_frame("Please select a camera to start")
+
+        jpeg_payload = (
+            worker.jpeg_cache.encode(frame_to_send)
+            if worker is not None
+            else placeholder_cache.encode(frame_to_send)
+        )
+        if jpeg_payload is not None:
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg_payload + b'\r\n')
         time.sleep(0.04) # ~25 FPS limit for stream output
 
 @app.get("/video_feed")
@@ -2536,6 +3716,22 @@ def video_feed(camera_id: str = None):
 def video_feed_cam(camera_id: str):
     return StreamingResponse(generate_frames_for_cam(camera_id), media_type="multipart/x-mixed-replace; boundary=frame")
 
+@app.get("/preview_frame/{camera_id}")
+def preview_frame(camera_id: str):
+    """Finite annotated preview: large walls must not hold one HTTP socket per tile."""
+    worker = camera_manager.get_worker(camera_id)
+    if worker is None:
+        return JSONResponse(status_code=404, content={"message": "Camera not found"})
+    with worker.frame_lock:
+        frame = worker.latest_annotated_frame
+    if frame is None:
+        return Response(status_code=204)
+    payload = worker.jpeg_cache.encode(frame)
+    if payload is None:
+        return Response(status_code=204)
+    return Response(content=payload, media_type="image/jpeg")
+
+
 @app.get("/snapshot")
 def get_snapshot(camera_id: str = None):
     worker = camera_manager.get_worker(camera_id)
@@ -2545,7 +3741,7 @@ def get_snapshot(camera_id: str = None):
         if ret:
             return Response(content=buffer.tobytes(), media_type="image/jpeg")
         return JSONResponse(status_code=404, content={"message": "Camera not found"})
-        
+
     with worker.frame_lock:
         raw_frame = worker.latest_raw_frame if worker.latest_raw_frame is not None else worker.latest_annotated_frame
         if raw_frame is None:
@@ -2554,7 +3750,7 @@ def get_snapshot(camera_id: str = None):
             if ret:
                 return Response(content=buffer.tobytes(), media_type="image/jpeg")
             return JSONResponse(status_code=500, content={"message": "Error encoding image"})
-            
+
         ret, buffer = cv2.imencode('.jpg', raw_frame)
         if ret:
             return Response(content=buffer.tobytes(), media_type="image/jpeg")
@@ -2570,12 +3766,12 @@ def set_screen_region(payload: dict = Body(...)):
     worker = camera_manager.get_worker(cam_id)
     if not worker:
         return {"status": "error", "message": "Camera not found"}
-        
+
     if isinstance(worker.cap, ScreenGrabber):
         if payload.get("reset"):
             worker.cap.reset_region()
             return {"status": "success", "message": "คืนค่าแคปเต็มหน้าจอเรียบร้อยแล้ว"}
-        
+
         worker.cap.set_region(
             payload.get("left", 0.0),
             payload.get("top", 0.0),
@@ -2625,10 +3821,10 @@ def system_status(camera_id: str = None):
         "video_total_frames": 0, "video_current_frame": 0, "frame_skip": 0
     }
     all_cams = camera_manager.get_all_statuses()
-    
+
     total_unknown = sum(c.get("unknown_count", 0) for c in all_cams)
     total_line_cross = sum(c.get("line_cross_count", 0) for c in all_cams)
-    
+
     return {
         "status": "running",
         "stream_state": active_st["stream_state"],
@@ -2648,6 +3844,10 @@ def system_status(camera_id: str = None):
         "video_total_frames": active_st["video_total_frames"],
         "video_current_frame": active_st["video_current_frame"],
         "frame_skip": active_st["frame_skip"],
+        "detect_any_person": detect_any_person,
+        "detect_any_vehicle_zone": detect_any_vehicle_zone,
+        "telegram_notify_zone": telegram_notify_zone,
+        "zone_uncertain_confidence_threshold": zone_uncertain_confidence_threshold,
         "cameras": all_cams
     }
 
@@ -2657,7 +3857,7 @@ def seek_video(payload: dict = Body(...)):
     worker = camera_manager.get_worker(cam_id)
     if not worker:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Camera not found"})
-        
+
     fraction = payload.get("fraction")
     seconds = payload.get("seconds")
     if fraction is None and seconds is None:
@@ -2766,18 +3966,26 @@ async def set_detection_zone(payload: dict = Body(...)):
     cam_id = payload.get("camera_id")
     worker = camera_manager.get_worker(cam_id)
     if not worker:
+        worker = camera_manager.get_active_worker()
+    if not worker:
         return {"status": "error", "message": "Camera not found"}
-        
+
     if payload.get("reset"):
         worker.detection_zone = None
+        worker.cam_config["detection_zone"] = None
+        camera_manager.save_to_file()
         return {"status": "success", "message": "ยกเลิกพื้นที่ตรวจจับแล้ว"}
-        
+
     zone = payload.get("points", [])
     if len(zone) < 3:
         worker.detection_zone = None
+        worker.cam_config["detection_zone"] = None
+        camera_manager.save_to_file()
         return {"status": "error", "message": "กรุณาเลือกจุดอย่างน้อย 3 จุด"}
     else:
         worker.detection_zone = zone
+        worker.cam_config["detection_zone"] = zone
+        camera_manager.save_to_file()
         return {"status": "success", "message": "ตั้งค่าพื้นที่ตรวจจับเรียบร้อย"}
 
 @app.post("/set_crossing_line")
@@ -2785,25 +3993,33 @@ async def set_crossing_line(payload: dict = Body(...)):
     cam_id = payload.get("camera_id")
     worker = camera_manager.get_worker(cam_id)
     if not worker:
+        worker = camera_manager.get_active_worker()
+    if not worker:
         return {"status": "error", "message": "Camera not found"}
-        
+
     if payload.get("reset"):
         worker.crossing_line = None
+        worker.cam_config["crossing_line"] = None
         worker.crossing_direction = "any"
+        worker.cam_config["crossing_direction"] = "any"
         worker.track_history.clear()
         worker.line_cross_count = 0
+        camera_manager.save_to_file()
         return {"status": "success", "message": "ยกเลิกเส้นตรวจจับแล้ว"}
-        
+
     line_pts = payload.get("points", [])
     direction = payload.get("direction", "any")
-    
+
     if len(line_pts) != 2:
         return {"status": "error", "message": "กรุณาลากเส้น 2 จุดเท่านั้น"}
     else:
         worker.crossing_line = line_pts
+        worker.cam_config["crossing_line"] = line_pts
         worker.crossing_direction = direction
+        worker.cam_config["crossing_direction"] = direction
         worker.track_history.clear()
         worker.line_cross_count = 0
+        camera_manager.save_to_file()
         return {"status": "success", "message": "ตั้งค่าเส้นข้ามสำเร็จ"}
 
 @app.post("/toggle_show_zone")
@@ -2822,22 +4038,23 @@ async def toggle_show_zone(payload: dict = Body(...)):
 
 @app.get("/history")
 def get_history(
-    start_date: str = None, 
-    end_date: str = None, 
-    name: str = None, 
+    start_date: str = None,
+    end_date: str = None,
+    name: str = None,
     person_type: str = None,
     license_plate: str = None,
     vehicle_type: str = None,
-    vehicle_color: str = None
+    vehicle_color: str = None,
+    limit: int = 2000
 ):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             query = "SELECT * FROM hits WHERE 1=1"
             params = []
-            
+
             if start_date:
                 query += " AND timestamp >= ?"
                 params.append(f"{start_date} 00:00:00")
@@ -2866,7 +4083,7 @@ def get_history(
             if vehicle_color:
                 query += " AND name LIKE ?"
                 params.append(f"%{vehicle_color}%")
-            
+
             if person_type == "target":
                 query += " AND name != ? AND name NOT LIKE ?"
                 params.append("บุคคลทั่วไป")
@@ -2880,11 +4097,14 @@ def get_history(
                 params.append("บุคคลทั่วไป")
                 params.append("[LPR]%")
 
-            query += " ORDER BY timestamp DESC LIMIT 500"
-            
+            if limit and limit > 0:
+                query += f" ORDER BY timestamp DESC LIMIT {int(limit)}"
+            else:
+                query += " ORDER BY timestamp DESC"
+
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            
+
             results = []
             for row in rows:
                 results.append({
@@ -2897,10 +4117,264 @@ def get_history(
                     "full_url": row["full_url"],
                     "is_color_edited": row["is_color_edited"] if "is_color_edited" in row.keys() else 0,
                     "plate_img_url": row["plate_img_url"] if "plate_img_url" in row.keys() else None,
-                    "license_plate": row["license_plate"] if "license_plate" in row.keys() else None
+                    "license_plate": row["license_plate"] if "license_plate" in row.keys() else None,
+                    "lpr_status": row["lpr_status"] if "lpr_status" in row.keys() else None,
+                    "lpr_sample_count": row["lpr_sample_count"] if "lpr_sample_count" in row.keys() else 0
                 })
-            
+
             return {"status": "success", "data": results}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/history/download_zip")
+@app.get("/history/download_zip")
+async def download_history_zip(
+    request: Request,
+    ids: str = Query(None),
+    include_crop: bool = Query(True),
+    include_full: bool = Query(True),
+    include_plate: bool = Query(True)
+):
+    try:
+        raw_ids = []
+        if request.method == "POST":
+            try:
+                body = await request.json()
+                raw_ids = body.get("ids", [])
+                include_crop = body.get("include_crop", include_crop)
+                include_full = body.get("include_full", include_full)
+                include_plate = body.get("include_plate", include_plate)
+            except Exception:
+                pass
+
+        if not raw_ids and ids:
+            raw_ids = [x.strip() for x in ids.split(",") if x.strip()]
+
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            clean_ids = [int(x) for x in raw_ids if str(x).lstrip('-').isdigit()] if raw_ids else []
+            if clean_ids:
+                placeholders = ",".join(["?"] * len(clean_ids))
+                cursor.execute(f"SELECT * FROM hits WHERE id IN ({placeholders}) ORDER BY timestamp DESC", clean_ids)
+            else:
+                cursor.execute("SELECT * FROM hits ORDER BY timestamp DESC LIMIT 1000")
+
+            rows = cursor.fetchall()
+            if not rows:
+                return JSONResponse(status_code=404, content={"status": "error", "message": "ไม่พบรายการภาพตรวจจับที่ต้องการดาวน์โหลด"})
+
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                added_names = set()
+
+                for row in rows:
+                    hit_id = row["id"]
+                    ts_str = str(row["timestamp"] or "").replace(":", "-").replace(" ", "_")
+                    safe_name = re.sub(r'[^a-zA-Z0-9ก-๙_-]', '_', str(row["name"] or "target"))
+
+                    # 1. Full image
+                    if include_full and row["full_url"]:
+                        fname = os.path.basename(row["full_url"].split("alerts_img/")[-1])
+                        fpath = os.path.join("alerts", fname)
+                        if os.path.exists(fpath):
+                            arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_full.jpg"
+                            if arc_name in added_names:
+                                arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_{fname}"
+                            zf.write(fpath, arcname=arc_name)
+                            added_names.add(arc_name)
+
+                    # 2. Crop image
+                    if include_crop and row["img_url"]:
+                        fname = os.path.basename(row["img_url"].split("alerts_img/")[-1])
+                        fpath = os.path.join("alerts", fname)
+                        if os.path.exists(fpath):
+                            arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_crop.jpg"
+                            if arc_name in added_names:
+                                arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_{fname}"
+                            zf.write(fpath, arcname=arc_name)
+                            added_names.add(arc_name)
+
+                    # 3. Plate image
+                    if include_plate and row["plate_img_url"]:
+                        fname = os.path.basename(row["plate_img_url"].split("alerts_img/")[-1])
+                        fpath = os.path.join("alerts", fname)
+                        if os.path.exists(fpath):
+                            arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_plate.jpg"
+                            if arc_name in added_names:
+                                arc_name = f"{ts_str}_{safe_name}_ID{hit_id}_{fname}"
+                            zf.write(fpath, arcname=arc_name)
+                            added_names.add(arc_name)
+
+            zip_buffer.seek(0)
+            now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"cctv_detections_{now_str}.zip"
+
+            return StreamingResponse(
+                zip_buffer,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Access-Control-Expose-Headers": "Content-Disposition"
+                }
+            )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/history/export_csv")
+@app.get("/history/export_csv")
+async def export_history_csv(
+    request: Request,
+    ids: str = Query(None),
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    name: str = Query(None),
+    person_type: str = Query(None),
+    license_plate: str = Query(None),
+    vehicle_type: str = Query(None),
+    vehicle_color: str = Query(None)
+):
+    try:
+        raw_ids = []
+        if request.method == "POST":
+            try:
+                body = await request.json()
+                raw_ids = body.get("ids", [])
+                start_date = body.get("start_date", start_date)
+                end_date = body.get("end_date", end_date)
+                name = body.get("name", name)
+                person_type = body.get("person_type", person_type)
+                license_plate = body.get("license_plate", license_plate)
+                vehicle_type = body.get("vehicle_type", vehicle_type)
+                vehicle_color = body.get("vehicle_color", vehicle_color)
+            except Exception:
+                pass
+
+        if not raw_ids and ids:
+            raw_ids = [x.strip() for x in ids.split(",") if x.strip()]
+
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            clean_ids = [int(x) for x in raw_ids if str(x).lstrip('-').isdigit()] if raw_ids else []
+            if clean_ids:
+                placeholders = ",".join(["?"] * len(clean_ids))
+                cursor.execute(f"SELECT * FROM hits WHERE id IN ({placeholders}) ORDER BY timestamp DESC", clean_ids)
+            else:
+                query = "SELECT * FROM hits WHERE 1=1"
+                params = []
+                if start_date:
+                    query += " AND timestamp >= ?"
+                    params.append(f"{start_date} 00:00:00")
+                if end_date:
+                    query += " AND timestamp <= ?"
+                    params.append(f"{end_date} 23:59:59")
+                if name:
+                    query += " AND name LIKE ?"
+                    params.append(f"%{name}%")
+                if license_plate:
+                    plate_digits = extract_digits(license_plate)
+                    if plate_digits and len(plate_digits) >= 3:
+                        query += " AND (license_plate LIKE ? OR license_plate LIKE ? OR name LIKE ? OR name LIKE ?)"
+                        params.append(f"%{license_plate}%")
+                        params.append(f"%{plate_digits}%")
+                        params.append(f"%{license_plate}%")
+                        params.append(f"%{plate_digits}%")
+                    else:
+                        query += " AND (license_plate LIKE ? OR name LIKE ?)"
+                        params.append(f"%{license_plate}%")
+                        params.append(f"%{license_plate}%")
+                if vehicle_type:
+                    query += " AND name LIKE ?"
+                    params.append(f"%{vehicle_type}%")
+                if vehicle_color:
+                    query += " AND name LIKE ?"
+                    params.append(f"%{vehicle_color}%")
+
+                if person_type == "target":
+                    query += " AND name != ? AND name NOT LIKE ?"
+                    params.append("บุคคลทั่วไป")
+                    params.append("[LPR]%")
+                elif person_type == "plate_target":
+                    query += " AND (name LIKE ? OR name LIKE ?)"
+                    params.append("%ทะเบียนเป้าหมาย%")
+                    params.append("%💳%")
+                elif person_type == "unknown":
+                    query += " AND (name = ? OR name LIKE ?)"
+                    params.append("บุคคลทั่วไป")
+                    params.append("[LPR]%")
+
+                query += " ORDER BY timestamp DESC LIMIT 5000"
+                cursor.execute(query, params)
+
+            rows = cursor.fetchall()
+            if not rows:
+                return JSONResponse(status_code=404, content={"status": "error", "message": "ไม่พบข้อมูลที่ต้องการส่งออกเป็น CSV"})
+
+            csv_output = io.StringIO()
+            # Write UTF-8 BOM so Microsoft Excel and Numbers display Thai characters correctly without mojibake
+            csv_output.write('\ufeff')
+            writer = csv.writer(csv_output, quoting=csv.QUOTE_MINIMAL)
+
+            # Header
+            writer.writerow([
+                "ID",
+                "วัน-เวลา",
+                "กล้อง",
+                "เป้าหมาย",
+                "เลขทะเบียน",
+                "สถานะป้าย",
+                "ความมั่นใจ (%)",
+                "จำนวนเฟรม",
+                "ภาพตัดรถ",
+                "ภาพมุมกว้าง",
+                "ภาพป้าย"
+            ])
+
+            for row in rows:
+                col_keys = row.keys()
+                hit_id = row["id"]
+                ts = row["timestamp"] or ""
+                cam = row["camera_url"] or ""
+                det_name = row["name"] or ""
+                plate = row["license_plate"] or ""
+                lpr_st = row["lpr_status"] if "lpr_status" in col_keys else ""
+                conf = row["confidence"] if row["confidence"] is not None else ""
+                sample_cnt = row["lpr_sample_count"] if "lpr_sample_count" in col_keys and row["lpr_sample_count"] is not None else ""
+                crop_url = row["img_url"] or ""
+                full_url = row["full_url"] or ""
+                plate_url = row["plate_img_url"] if "plate_img_url" in col_keys else ""
+
+                writer.writerow([
+                    hit_id,
+                    ts,
+                    cam,
+                    det_name,
+                    plate,
+                    lpr_st,
+                    conf,
+                    sample_cnt,
+                    crop_url,
+                    full_url,
+                    plate_url
+                ])
+
+            csv_bytes = csv_output.getvalue().encode('utf-8')
+            csv_output.close()
+
+            now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"cctv_detections_{now_str}.csv"
+
+            return Response(
+                content=csv_bytes,
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Access-Control-Expose-Headers": "Content-Disposition"
+                }
+            )
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
@@ -2915,15 +4389,16 @@ def bulk_delete_history(payload: dict = Body(...)):
             return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid IDs provided"})
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
             # 1. ค้นหา url ของรูปภาพทั้งหมดที่จะถูกลบ
             placeholders = ','.join(['?'] * len(ids))
-            cursor.execute(f'SELECT img_url, full_url, plate_img_url FROM hits WHERE id IN ({placeholders})', ids)
+            cursor.execute(f'SELECT camera_url, img_url, full_url, plate_img_url FROM hits WHERE id IN ({placeholders})', ids)
             rows = cursor.fetchall()
-            
+            deleted_camera_urls = {str(row[0]) for row in rows if row[0]}
+
             urls_to_remove = set()
             for row in rows:
-                for col_idx in range(len(row)):
+                for col_idx in range(1, len(row)):
                     url = row[col_idx]
                     if url:
                         urls_to_remove.add(url)
@@ -2935,15 +4410,26 @@ def bulk_delete_history(payload: dict = Body(...)):
                                     os.remove(img_path)
                                 except Exception:
                                     pass
-            
+
             # 2. ลบออกจาก DB
             cursor.execute(f'DELETE FROM hits WHERE id IN ({placeholders})', ids)
+            cleared_camera_urls = set()
+            for camera_url in deleted_camera_urls:
+                cursor.execute('SELECT 1 FROM hits WHERE camera_url = ? LIMIT 1', (camera_url,))
+                if cursor.fetchone() is None:
+                    cleared_camera_urls.add(camera_url)
             conn.commit()
-            
+
             # 3. ลบออกจาก latest_hits (เพื่อให้หน้า Dashboard หายไปด้วย)
             for cam_url in list(latest_hits.keys()):
                 latest_hits[cam_url] = [hit for hit in latest_hits[cam_url] if hit.get("img_url") not in urls_to_remove]
-                
+
+            # Clearing the persisted history should also re-arm the in-memory
+            # per-track de-duplication state. Otherwise the dashboard is empty
+            # but active tracks remain marked as already logged for up to 60s.
+            if cleared_camera_urls:
+                reset_detection_runtime_after_history_clear(cleared_camera_urls)
+
             return {"status": "success", "message": f"Deleted {len(ids)} records"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -2952,51 +4438,51 @@ def bulk_delete_history(payload: dict = Body(...)):
 def train_color(data: dict = Body(...)):
     hit_id = data.get("hit_id")
     correct_color = data.get("correct_color")
-    
+
     if hit_id is not None:
         try:
             hit_id = int(hit_id)
         except (ValueError, TypeError):
             pass
-            
+
     if not hit_id or not correct_color:
         return JSONResponse(status_code=400, content={"status": "error", "message": "Missing hit_id or correct_color"})
-        
+
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT img_url FROM hits WHERE id = ?", (hit_id,))
             row = cursor.fetchone()
-            
+
             if not row or not row['img_url']:
                 return JSONResponse(status_code=404, content={"status": "error", "message": "Hit not found or no image available"})
-                
+
             img_url = row['img_url']
             if "alerts_img/" in img_url:
                 filename = os.path.basename(img_url.split("alerts_img/")[-1])
                 filepath = os.path.join("alerts", filename)
-                
+
                 if not os.path.exists(filepath):
                     return JSONResponse(status_code=404, content={"status": "error", "message": "Image file not found"})
-                    
+
                 # Read image and extract HSV
                 img = cv2.imread(filepath)
                 if img is None:
                     return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to read image"})
-                    
+
                 # We need to extract dominant color like in get_vehicle_color
                 hsv_vals = extract_vehicle_hsv(img)
                 if hsv_vals is None:
                     return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to extract color from vehicle image"})
                 h_val, s_val, v_val = hsv_vals
-                
+
                 # Insert into color_training
                 cursor.execute('''
                     INSERT INTO color_training (h, s, v, correct_color, timestamp)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (h_val, s_val, v_val, correct_color, datetime.now()))
-                
+
                 # Update hits table: mark is_color_edited = 1 and correct the vehicle name
                 cursor.execute("SELECT name FROM hits WHERE id = ?", (hit_id,))
                 row_hit = cursor.fetchone()
@@ -3013,13 +4499,13 @@ def train_color(data: dict = Body(...)):
                         if " (#" in old_name:
                             parts = old_name.split(" (#")
                             new_name = f"{parts[0]}สี{correct_color} (#{parts[1]}"
-                    
+
                     cursor.execute("UPDATE hits SET name = ?, is_color_edited = 1 WHERE id = ?", (new_name, hit_id))
                 else:
                     cursor.execute("UPDATE hits SET is_color_edited = 1 WHERE id = ?", (hit_id,))
-                
+
                 conn.commit()
-                
+
                 # Sync in-memory latest_hits list
                 sync_count = 0
                 for cam_url in latest_hits:
@@ -3030,7 +4516,7 @@ def train_color(data: dict = Body(...)):
                                 hit["name"] = new_name
                             sync_count += 1
                 print(f"[DEBUG] Synced corrected name to {sync_count} in-memory hits for hit_id={hit_id}")
-                
+
                 return {"status": "success", "message": f"แก้ไขสีรถยนต์เป็นสี {correct_color} เรียบร้อยแล้ว!"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -3041,16 +4527,17 @@ def delete_history(hit_id: int):
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             # Get the record to delete physical files
-            cursor.execute("SELECT img_url, full_url, plate_img_url FROM hits WHERE id = ?", (hit_id,))
+            cursor.execute("SELECT camera_url, img_url, full_url, plate_img_url FROM hits WHERE id = ?", (hit_id,))
             row = cursor.fetchone()
-            
+
             if not row:
                 return JSONResponse(status_code=404, content={"status": "error", "message": "ไม่พบข้อมูลประวัตินี้"})
-                
+
             url_to_remove = row['img_url']
-            
+            deleted_camera_url = row['camera_url']
+
             # Attempt to delete physical files from alerts/ directory
             for url_field in ['img_url', 'full_url', 'plate_img_url']:
                 if url_field in row.keys():
@@ -3063,16 +4550,21 @@ def delete_history(hit_id: int):
                                 os.remove(filepath)
                             except Exception:
                                 pass
-                            
+
             # Delete from database
             cursor.execute("DELETE FROM hits WHERE id = ?", (hit_id,))
+            cursor.execute("SELECT 1 FROM hits WHERE camera_url = ? LIMIT 1", (deleted_camera_url,))
+            camera_history_is_empty = cursor.fetchone() is None
             conn.commit()
-            
+
             # Update latest_hits memory
             if url_to_remove:
                 for cam_url in list(latest_hits.keys()):
                     latest_hits[cam_url] = [hit for hit in latest_hits[cam_url] if hit.get("img_url") != url_to_remove]
-            
+
+            if camera_history_is_empty and deleted_camera_url:
+                reset_detection_runtime_after_history_clear({deleted_camera_url})
+
         return {"status": "success", "message": "ลบข้อมูลเรียบร้อยแล้ว"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -3081,7 +4573,7 @@ def delete_history(hit_id: int):
 def get_target_hits(camera_id: str = None):
     worker = camera_manager.get_worker(camera_id)
     cam_key = str(worker.url) if worker else str(RTSP_URL)
-    
+
     # 1. Look up in-memory latest_hits with exact key or partial/prefix key match
     hits = latest_hits.get(cam_key)
     if not hits:
@@ -3089,7 +4581,7 @@ def get_target_hits(camera_id: str = None):
             if v and (cam_key in k or k in cam_key or (cam_key.startswith("screen") and k.startswith("screen"))):
                 hits = v
                 break
-    
+
     if not hits:
         hits = []
 
@@ -3101,7 +4593,8 @@ def get_target_hits(camera_id: str = None):
                 cursor = conn.cursor()
                 clean_prefix = cam_key.split(":")[0] if ":" in cam_key else cam_key
                 cursor.execute('''
-                    SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited, plate_img_url, license_plate
+                    SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited,
+                           plate_img_url, license_plate, lpr_status, lpr_initial_plate, lpr_sample_count
                     FROM hits
                     WHERE camera_url = ? OR camera_url LIKE ? OR camera_url LIKE ?
                     ORDER BY timestamp DESC LIMIT 10
@@ -3120,7 +4613,10 @@ def get_target_hits(camera_id: str = None):
                         "full_url": row["full_url"],
                         "is_color_edited": row["is_color_edited"] if "is_color_edited" in row.keys() else 0,
                         "plate_img_url": row["plate_img_url"] if "plate_img_url" in row.keys() else None,
-                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None
+                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None,
+                        "lpr_status": row["lpr_status"] if "lpr_status" in row.keys() else None,
+                        "lpr_initial_plate": row["lpr_initial_plate"] if "lpr_initial_plate" in row.keys() else None,
+                        "lpr_sample_count": row["lpr_sample_count"] if "lpr_sample_count" in row.keys() else 0,
                     })
                 hits = loaded
                 if loaded:
@@ -3135,7 +4631,8 @@ def get_target_hits(camera_id: str = None):
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited, plate_img_url, license_plate
+                    SELECT id, camera_url, name, timestamp, confidence, img_url, full_url, is_color_edited,
+                           plate_img_url, license_plate, lpr_status, lpr_initial_plate, lpr_sample_count
                     FROM hits
                     ORDER BY timestamp DESC LIMIT 10
                 ''')
@@ -3153,20 +4650,140 @@ def get_target_hits(camera_id: str = None):
                         "full_url": row["full_url"],
                         "is_color_edited": row["is_color_edited"] if "is_color_edited" in row.keys() else 0,
                         "plate_img_url": row["plate_img_url"] if "plate_img_url" in row.keys() else None,
-                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None
+                        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None,
+                        "lpr_status": row["lpr_status"] if "lpr_status" in row.keys() else None,
+                        "lpr_initial_plate": row["lpr_initial_plate"] if "lpr_initial_plate" in row.keys() else None,
+                        "lpr_sample_count": row["lpr_sample_count"] if "lpr_sample_count" in row.keys() else 0,
                     })
                 hits = loaded
         except Exception as e:
             print(f"Error querying fallback DB hits: {e}")
 
     if show_only_targets:
-        return [h for h in hits if not h.get("name", "").startswith("[LPR]") and h.get("name", "") != "บุคคลทั่วไป"]
+        return [h for h in hits if not h.get("name", "").startswith("[LPR]") and not h.get("name", "").startswith("บุคคลทั่วไป")]
     return hits
+
+
+def serialize_hit_row(row):
+    timestamp = row["timestamp"]
+    time_str = timestamp.split(" ")[1] if (timestamp and " " in timestamp) else timestamp
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "timestamp": timestamp,
+        "time": time_str,
+        "confidence": row["confidence"],
+        "img_url": row["img_url"],
+        "full_url": row["full_url"],
+        "is_color_edited": row["is_color_edited"] if "is_color_edited" in row.keys() else 0,
+        "plate_img_url": row["plate_img_url"] if "plate_img_url" in row.keys() else None,
+        "license_plate": row["license_plate"] if "license_plate" in row.keys() else None,
+        "lpr_status": row["lpr_status"] if "lpr_status" in row.keys() else None,
+        "lpr_initial_plate": row["lpr_initial_plate"] if "lpr_initial_plate" in row.keys() else None,
+        "lpr_sample_count": row["lpr_sample_count"] if "lpr_sample_count" in row.keys() else 0,
+    }
+
+
+@app.get("/target_hits_page")
+def get_target_hits_page(
+    camera_id: str = None,
+    before_id: int = Query(None, ge=1),
+    after_id: int = Query(None, ge=1),
+    limit: int = Query(12, ge=1, le=100),
+):
+    """Return one keyset-paginated page for the dashboard Hit List."""
+    if before_id is not None and after_id is not None:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "Use before_id or after_id, not both"},
+        )
+
+    clauses = []
+    params = []
+
+    # If camera_id is specified (and not 'all'):
+    if camera_id and camera_id.strip() not in ("", "all", "none"):
+        raw_ids = [c.strip() for c in camera_id.split(",") if c.strip()]
+        matched_urls = []
+        for cid in raw_ids:
+            if cid in ("all", "default"):
+                continue
+            w = camera_manager.get_worker(cid)
+            if w and w.url:
+                matched_urls.append(str(w.url))
+            elif cid and (cid.startswith("rtsp://") or cid.startswith("http://") or cid.startswith("screen:") or cid.isdigit()):
+                matched_urls.append(cid)
+        # Quality selects a stream, not a different camera. Include history
+        # recorded before switching the Satun input between sub and main.
+        for source in list(matched_urls):
+            parsed = urllib.parse.urlsplit(source)
+            if parsed.hostname in {"localhost", "127.0.0.1", "::1"} and parsed.path == "/api/live/stream":
+                query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+                for quality in ("sub", "main"):
+                    pairs = [(key, quality if key == "quality" else value) for key, value in query]
+                    alias = urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(pairs)))
+                    if alias not in matched_urls:
+                        matched_urls.append(alias)
+        if matched_urls:
+            if len(matched_urls) == 1:
+                clauses.append("camera_url = ?")
+                params.append(matched_urls[0])
+            else:
+                placeholders = ",".join("?" for _ in matched_urls)
+                clauses.append(f"camera_url IN ({placeholders})")
+                params.extend(matched_urls)
+    elif camera_id == "default":
+        w = camera_manager.get_worker("default")
+        if w and w.url:
+            clauses.append("camera_url = ?")
+            params.append(str(w.url))
+
+    if before_id is not None:
+        clauses.append("id < ?")
+        params.append(before_id)
+    elif after_id is not None:
+        clauses.append("id > ?")
+        params.append(after_id)
+    if show_only_targets:
+        clauses.append("name NOT LIKE ?")
+        params.append("บุคคลทั่วไป%")
+        clauses.append("name NOT LIKE ?")
+        params.append("[LPR]%")
+
+    order_direction = "ASC" if after_id is not None else "DESC"
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = f'''
+        SELECT id, name, timestamp, confidence, img_url, full_url,
+               is_color_edited, plate_img_url, license_plate, lpr_status,
+               lpr_initial_plate, lpr_sample_count
+        FROM hits
+        {where_sql}
+        ORDER BY id {order_direction}
+        LIMIT ?
+    '''
+    params.append(limit + 1)
+
+    try:
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, params).fetchall()
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    items = [serialize_hit_row(row) for row in page_rows]
+    return {
+        "items": items,
+        "has_more": has_more,
+        "next_before_id": items[-1]["id"] if has_more and items else None,
+        "next_after_id": items[-1]["id"] if has_more and items else None,
+    }
 
 @app.post("/change_camera")
 async def change_camera(camera_url: str = Form(...), frame_skip: int = Form(0), camera_id: str = Form(None)):
     global RTSP_URL, current_frame_skip
-    
+
     worker = None
     if camera_id:
         worker = camera_manager.get_worker(camera_id)
@@ -3176,14 +4793,21 @@ async def change_camera(camera_url: str = Form(...), frame_skip: int = Form(0), 
         if not validate_camera_source(camera_url):
             return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid camera source"})
         worker = camera_manager.add_camera(f"Camera ({sanitized_text(camera_url, max_len=80)})", camera_url)
-        
+
     camera_manager.set_active_camera(worker.cam_id)
     frame_skip = max(0, min(30, int(frame_skip)))
     worker.frame_skip = frame_skip
-    worker.play()
+    # Source selection only prepares the preview. Detection, tracking and
+    # alerts must start from the explicit Play/Scan action.
+    worker.pause()
     RTSP_URL = worker.url
     current_frame_skip = frame_skip
-    return {"status": "success", "message": f"Changed camera to {worker.name}", "camera_id": worker.cam_id}
+    return {
+        "status": "success",
+        "message": f"Changed camera to {worker.name}; waiting to start detection",
+        "camera_id": worker.cam_id,
+        "stream_state": worker.stream_state,
+    }
 
 @app.post("/set_frame_skip")
 async def set_frame_skip(frame_skip: int = Form(...), camera_id: str = Form(None)):
@@ -3208,21 +4832,21 @@ async def upload_video(file: UploadFile = File(...)):
         if raw_ext not in ALLOWED_VIDEO_EXTS:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Unsupported video file type"})
         ext = raw_ext
-        
+
         filename = f"video_{timestamp}{ext}"
         filepath = os.path.join("uploads", filename)
-        
+
         try:
             await save_upload_limited(file, filepath, MAX_VIDEO_UPLOAD_BYTES)
         except ValueError as e:
             return JSONResponse(status_code=413, content={"status": "error", "message": str(e)})
-            
+
         safe_display_name = sanitized_text(os.path.basename(file.filename or filename), default=filename, max_len=120)
         worker = camera_manager.add_camera(f"Video: {safe_display_name}", filepath)
         camera_manager.set_active_camera(worker.cam_id)
         worker.pause() # Wait for play button
         RTSP_URL = filepath
-        
+
         return {"status": "success", "message": f"อัปโหลดและสลับไปยังวิดีโอ {safe_display_name} เรียบร้อยแล้ว", "camera_id": worker.cam_id}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -3238,7 +4862,7 @@ async def add_youtube(youtube_url: str = Form(...), frame_skip: int = Form(0)):
             info_dict = ydl.extract_info(youtube_url, download=False)
             video_url = info_dict.get('url', None)
             title = info_dict.get('title', 'YouTube Video')
-            
+
         if not video_url:
             return {"status": "error", "message": "ไม่สามารถดึงสตรีมวิดีโอจากลิงก์นี้ได้"}
 
@@ -3247,7 +4871,7 @@ async def add_youtube(youtube_url: str = Form(...), frame_skip: int = Form(0)):
         worker.frame_skip = max(0, min(30, int(frame_skip)))
         worker.pause()
         RTSP_URL = video_url
-        
+
         return {"status": "success", "message": f"เริ่มดึงภาพจาก {title} เรียบร้อยแล้ว", "camera_id": worker.cam_id}
     except Exception as e:
         return {"status": "error", "message": f"Error: {str(e)}"}
@@ -3255,6 +4879,8 @@ async def add_youtube(youtube_url: str = Form(...), frame_skip: int = Form(0)):
 @app.get("/system_settings")
 def get_system_settings():
     return {
+        "face_recognition_available": FACE_AVAILABLE,
+        "enable_person_detection": enable_person_detection,
         "save_unknown_faces": save_unknown_faces,
         "show_only_targets": show_only_targets,
         "show_detection_zone": show_detection_zone,
@@ -3269,27 +4895,55 @@ def get_system_settings():
         "telegram_bot_token_masked": mask_secret(telegram_bot_token),
         "telegram_chat_id": telegram_chat_id,
         "telegram_cooldown": telegram_cooldown,
+        "telegram_min_confidence": telegram_min_confidence,
         "telegram_notify_faces": telegram_notify_faces,
         "telegram_notify_vehicles": telegram_notify_vehicles,
-        "telegram_notify_plates": telegram_notify_plates
+        "telegram_notify_plates": telegram_notify_plates,
+        "telegram_notify_zone": telegram_notify_zone,
+        "telegram_person_image_mode": telegram_person_image_mode,
+        "detect_any_person": detect_any_person,
+        "detect_any_vehicle_zone": detect_any_vehicle_zone,
+        "zone_uncertain_confidence_threshold": zone_uncertain_confidence_threshold
     }
 
 @app.post("/update_settings")
 def update_settings(payload: dict = Body(...)):
-    global save_unknown_faces, show_only_targets, min_confidence, face_match_threshold, vehicle_match_threshold, enable_lpr, config
-    global telegram_enabled, telegram_bot_token, telegram_chat_id, telegram_cooldown, telegram_notify_faces, telegram_notify_vehicles, telegram_notify_plates
+    global enable_person_detection
+    global save_unknown_faces, show_only_targets, min_confidence, face_match_threshold, vehicle_match_threshold, enable_lpr, config, detect_any_person
+    global telegram_enabled, telegram_bot_token, telegram_chat_id, telegram_cooldown, telegram_min_confidence, telegram_notify_faces, telegram_notify_vehicles, telegram_notify_plates, telegram_person_image_mode
+    global detect_any_vehicle_zone, zone_uncertain_confidence_threshold, telegram_notify_zone
     updated = False
-    
+
+    if "enable_person_detection" in payload:
+        enable_person_detection = FACE_AVAILABLE and bool(payload["enable_person_detection"])
+        config["enable_person_detection"] = enable_person_detection
+        updated = True
+
+    if "detect_any_person" in payload:
+        detect_any_person = bool(payload["detect_any_person"])
+        config["detect_any_person"] = detect_any_person
+        updated = True
+
+    if "detect_any_vehicle_zone" in payload:
+        detect_any_vehicle_zone = bool(payload["detect_any_vehicle_zone"])
+        config["detect_any_vehicle_zone"] = detect_any_vehicle_zone
+        updated = True
+
+    if "zone_uncertain_confidence_threshold" in payload:
+        zone_uncertain_confidence_threshold = max(10, min(90, int(payload["zone_uncertain_confidence_threshold"])))
+        config["zone_uncertain_confidence_threshold"] = zone_uncertain_confidence_threshold
+        updated = True
+
     if "save_unknown_faces" in payload:
         save_unknown_faces = bool(payload["save_unknown_faces"])
         config["save_unknown_faces"] = save_unknown_faces
         updated = True
-        
+
     if "show_only_targets" in payload:
         show_only_targets = bool(payload["show_only_targets"])
         config["show_only_targets"] = show_only_targets
         updated = True
-        
+
     if "min_confidence" in payload:
         min_confidence = max(1, min(99, int(payload["min_confidence"])))
         config["min_confidence"] = min_confidence
@@ -3328,8 +4982,13 @@ def update_settings(payload: dict = Body(...)):
         updated = True
 
     if "telegram_cooldown" in payload:
-        telegram_cooldown = max(5, int(payload["telegram_cooldown"]))
+        telegram_cooldown = max(1, int(payload["telegram_cooldown"]))
         config["telegram_cooldown"] = telegram_cooldown
+        updated = True
+
+    if "telegram_min_confidence" in payload:
+        telegram_min_confidence = max(1, min(99, int(payload["telegram_min_confidence"])))
+        config["telegram_min_confidence"] = telegram_min_confidence
         updated = True
 
     if "telegram_notify_faces" in payload:
@@ -3347,19 +5006,35 @@ def update_settings(payload: dict = Body(...)):
         config["telegram_notify_plates"] = telegram_notify_plates
         updated = True
 
+    if "telegram_notify_zone" in payload:
+        telegram_notify_zone = bool(payload["telegram_notify_zone"])
+        config["telegram_notify_zone"] = telegram_notify_zone
+        updated = True
+
+    if "telegram_person_image_mode" in payload:
+        requested_mode = str(payload["telegram_person_image_mode"]).strip().lower()
+        if requested_mode not in TELEGRAM_PERSON_IMAGE_MODES:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "รูปแบบภาพ Telegram ไม่ถูกต้อง"},
+            )
+        telegram_person_image_mode = requested_mode
+        config["telegram_person_image_mode"] = telegram_person_image_mode
+        updated = True
+
     if updated:
         save_config(config)
-        
+
     return {"status": "success", "message": "อัปเดตการตั้งค่าเรียบร้อยแล้ว"}
 
 @app.post("/test_telegram")
 def test_telegram(payload: dict = Body(...)):
     bot_token = str(payload.get("bot_token", "")).strip() or str(config.get("telegram_bot_token", "")).strip()
     chat_id = str(payload.get("chat_id", "")).strip() or str(config.get("telegram_chat_id", "")).strip()
-    
+
     if not bot_token or not chat_id:
         return JSONResponse(status_code=400, content={"status": "error", "message": "กรุณาระบุ Bot Token และ Chat ID ให้ครบถ้วน"})
-        
+
     try:
         import requests
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -3432,6 +5107,28 @@ def video_thumbnail(path: str):
         if cap is not None:
             cap.release()
 
+@app.get("/satun/cameras")
+def satun_cameras():
+    from satun_bridge import list_cameras
+    try:
+        return {"cameras": list_cameras()}
+    except Exception:
+        return JSONResponse(status_code=503, content={"message": "เชื่อมต่อระบบสตูลไม่ได้ กรุณาเปิดระบบและตรวจ SATUN_API_URL"})
+
+
+@app.post("/satun/cameras")
+def add_satun_camera(payload: dict = Body(...)):
+    from satun_bridge import list_cameras, stream_url
+    try:
+        camera = next((c for c in list_cameras() if c["id"] == payload.get("id")), None)
+        if camera is None:
+            return JSONResponse(status_code=400, content={"message": "ไม่พบกล้องที่เลือก"})
+        worker = camera_manager.add_camera("สตูล: " + camera["name"], stream_url(camera))
+        return {"status": "success", "camera_id": worker.cam_id}
+    except Exception:
+        return JSONResponse(status_code=503, content={"message": "เพิ่มกล้องสตูลไม่สำเร็จ"})
+
+
 @app.post("/add_camera")
 async def add_camera(name: str = Form(...), url: str = Form(...)):
     if not validate_camera_source(url):
@@ -3466,19 +5163,19 @@ async def rename_target(old_filename: str = Form(...), new_name: str = Form(...)
     global known_face_cache, known_face_encodings, known_face_names
     if not old_filename or not new_name:
         return JSONResponse(status_code=400, content={"status": "error", "message": "Missing data"})
-    
+
     safe_old = os.path.basename(old_filename.strip())
     safe_new = sanitized_stem(new_name, default="target")
     ext = os.path.splitext(safe_old)[1]
     old_path = os.path.join('targets', safe_old)
     new_filename = f"{safe_new}{ext}"
     new_path = os.path.join('targets', new_filename)
-    
+
     if not os.path.exists(old_path):
         return JSONResponse(status_code=404, content={"status": "error", "message": "File not found"})
-        
+
     os.rename(old_path, new_path)
-    
+
     # Update cache incrementally without re-encoding!
     with targets_lock:
         if safe_old in known_face_cache:
@@ -3486,7 +5183,7 @@ async def rename_target(old_filename: str = Form(...), new_name: str = Form(...)
             base_name = re.sub(r'_[0-9]+$', '', safe_new)
             entry["base_name"] = base_name
             known_face_cache[new_filename] = entry
-            
+
             # Rebuild arrays from cache
             known_face_encodings = [item["encoding"] for item in known_face_cache.values()]
             known_face_names = [item["base_name"] for item in known_face_cache.values()]
@@ -3494,7 +5191,7 @@ async def rename_target(old_filename: str = Form(...), new_name: str = Form(...)
         else:
             # Fallback
             load_known_faces()
-            
+
     return {"status": "success", "message": f"Renamed to {safe_new}"}
 
 @app.delete("/remove_target/{filename}")
@@ -3504,7 +5201,7 @@ async def remove_target(filename: str):
     path = os.path.join('targets', safe_filename)
     if os.path.exists(path):
         os.remove(path)
-        
+
         # Update cache incrementally without re-encoding!
         with targets_lock:
             if safe_filename in known_face_cache:
@@ -3515,7 +5212,7 @@ async def remove_target(filename: str):
             else:
                 # Fallback
                 load_known_faces()
-                
+
         return {"status": "success", "message": "Target removed"}
     return JSONResponse(status_code=404, content={"status": "error", "message": "File not found"})
 
@@ -3525,16 +5222,16 @@ async def add_target(name: str = Form(...), file: UploadFile = File(...)):
     if raw_ext not in ALLOWED_IMAGE_EXTS:
         return JSONResponse(status_code=400, content={"status": "error", "message": "Unsupported image file type"})
     ext = raw_ext
-    
+
     safe_name = sanitized_stem(name, default="target")
     filepath = os.path.join('targets', f"{safe_name}{ext}")
-    
+
     # Auto-increment filename if it already exists to avoid overwriting
     counter = 2
     while os.path.exists(filepath):
         filepath = os.path.join('targets', f"{safe_name}_{counter}{ext}")
         counter += 1
-        
+
     try:
         await save_upload_limited(file, filepath, MAX_IMAGE_UPLOAD_BYTES)
     except ValueError as e:
@@ -3559,22 +5256,22 @@ async def add_multiple_targets(files: list[UploadFile] = File(...)):
         if raw_ext not in ALLOWED_IMAGE_EXTS:
             continue
         ext = raw_ext
-        
+
         # Extract base name from filename (e.g. "Witchapol_3" -> "Witchapol")
         original_name = os.path.splitext(file.filename or "target")[0]
         # Decode URL-encoded characters in filename if any
         original_name = urllib.parse.unquote(original_name)
         original_name = os.path.basename(original_name)
-        
+
         # Remove trailing _number if present
         name_clean = sanitized_stem(re.sub(r'_[0-9]+$', '', original_name), default="target")
-        
+
         filepath = os.path.join('targets', f"{name_clean}{ext}")
         counter = 2
         while os.path.exists(filepath):
             filepath = os.path.join('targets', f"{name_clean}_{counter}{ext}")
             counter += 1
-            
+
         try:
             written = await save_upload_limited(file, filepath, MAX_IMAGE_UPLOAD_BYTES)
         except ValueError as e:
@@ -3607,7 +5304,7 @@ async def add_vehicle_target(text: str = Form(...)):
     v_color = "ไม่ระบุ"
     text = sanitized_text(text, default="รถ", max_len=120)
     text_lower = text.lower()
-    
+
     # Improve parse type
     if "มอเตอร์ไซค์" in text_lower or "จักรยานยนต์" in text_lower:
         v_type = "รถมอเตอร์ไซค์"
@@ -3619,28 +5316,28 @@ async def add_vehicle_target(text: str = Form(...)):
         v_type = "รถเก๋ง"
     elif "บัส" in text_lower or "ตู้" in text_lower:
         v_type = "รถบัส"
-            
+
     # Simple parse color
     for c in ["ขาว", "ดำ", "เทา", "แดง", "น้ำเงิน", "เหลือง", "เขียว"]:
         if f"สี{c}" in text or f" {c}" in text or text.endswith(c):
             v_color = c
             break
-            
+
     new_target = {"type": v_type, "color": v_color, "raw": text}
     vehicle_targets.append(new_target)
-    
+
     try:
         with open(VEHICLE_TARGETS_FILE, "w", encoding="utf-8") as f:
             json.dump(vehicle_targets, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(e)
-        
+
     return {"status": "success", "message": f"เพิ่มเป้าหมาย: {text} ({v_type} สี{v_color})"}
 
 @app.post("/add_vehicle_image_target")
 async def add_vehicle_image_target(file: UploadFile = File(...)):
     global vehicle_targets
-    
+
     raw_ext = os.path.splitext(file.filename or "")[1].lower()
     if raw_ext not in ALLOWED_IMAGE_EXTS:
         return JSONResponse(status_code=400, content={"status": "error", "message": "Unsupported image file type"})
@@ -3649,36 +5346,47 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
         return JSONResponse(status_code=413, content={"status": "error", "message": f"File too large. Limit is {MAX_IMAGE_UPLOAD_BYTES // (1024 * 1024)} MB"})
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
+
     if img is None:
         return JSONResponse(status_code=400, content={"status": "error", "message": "ไฟล์รูปภาพไม่ถูกต้อง"})
     if model is None:
         return JSONResponse(status_code=503, content={"status": "error", "message": "YOLO model is not loaded"})
-        
-    # Run YOLO to find vehicle
-    results = model(img, classes=[1, 2, 3, 5, 7], conf=0.25, verbose=False)
-    
+
+    # Run YOLO to find vehicle with thread-safe lock
+    try:
+        with inference_lock:
+            with torch.inference_mode():
+                results = model(img, classes=[1, 2, 3, 5, 7], conf=0.25, verbose=False, device=DEVICE)
+                if DEVICE == "mps":
+                    try:
+                        torch.mps.synchronize()
+                    except Exception:
+                        pass
+    except Exception as infer_err:
+        print(f"[VehicleTarget] YOLO inference error: {infer_err}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"เกิดข้อผิดพลาดในการวิเคราะห์ยานพาหนะ: {infer_err}"})
+
     found_vehicle = False
     v_type = ""
     v_color = ""
-    
+
     if len(results) > 0 and len(results[0].boxes) > 0:
         found_vehicle = True
         boxes = results[0].boxes.xyxy.cpu().numpy()
         cls_ids = results[0].boxes.cls.int().cpu().numpy()
-        
+
         areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
         max_idx = np.argmax(areas)
-        
+
         best_box = boxes[max_idx]
         best_cls = cls_ids[max_idx]
-        
+
         x1, y1, x2, y2 = map(int, best_box)
         v_crop = img[max(0, y1):min(img.shape[0], y2), max(0, x1):min(img.shape[1], x2)]
-        
+
         vehicle_types = {1: "รถจักรยาน", 2: "รถเก๋ง", 3: "รถมอเตอร์ไซค์", 5: "รถบัส", 7: "รถกระบะ"}
         v_type = vehicle_types.get(best_cls, "รถยนต์")
-        
+
         v_color = get_vehicle_color(v_crop)
 
         emb = get_vehicle_embedding(v_crop)  # (512,) or None
@@ -3732,11 +5440,13 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
                     new_target["embedding_file"] = emb_filename
                 except Exception as e:
                     print(f"[ReID] Failed to save embedding: {e}")
-            vehicle_targets.append(new_target)
+            with targets_lock:
+                vehicle_targets.append(new_target)
 
         try:
-            with open(VEHICLE_TARGETS_FILE, "w", encoding="utf-8") as f:
-                json.dump(vehicle_targets, f, indent=4, ensure_ascii=False)
+            with targets_lock:
+                with open(VEHICLE_TARGETS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(vehicle_targets, f, indent=4, ensure_ascii=False)
             load_vehicle_targets() # Reload targets + embeddings in memory
         except Exception as e:
             print("Error saving vehicle target JSON:", e)
@@ -3745,16 +5455,16 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
     face_msg = ""
     rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     # upsample to find smaller faces on bikes
-    face_locations = face_recognition.face_locations(rgb_img, model="hog", number_of_times_to_upsample=2)
-    
+    face_locations = safe_face_locations(rgb_img, model="hog", number_of_times_to_upsample=2)
+
     if face_locations:
-        face_encodings = face_recognition.face_encodings(rgb_img, face_locations)
+        face_encodings = safe_face_encodings(rgb_img, face_locations)
         if face_encodings:
             timestamp = int(time.time())
             face_name = f"ผู้ขับขี่รถจากภาพ_{timestamp}"
             face_filename = f"{face_name}.jpg"
             face_path = os.path.join('targets', face_filename)
-            
+
             # Save the face crop to targets directory
             top, right, bottom, left = face_locations[0]
             h, w = img.shape[:2]
@@ -3762,15 +5472,15 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
             cx1, cy1 = max(0, left - padding), max(0, top - padding)
             cx2, cy2 = min(w, right + padding), min(h, bottom + padding)
             face_crop = img[cy1:cy2, cx1:cx2]
-            
+
             if face_crop.size > 0:
                 cv2.imwrite(face_path, face_crop)
                 append_known_face(face_path) # Incrementally add the new face
                 face_msg = "และดึงใบหน้าบุคคลเพิ่มเป็นเป้าหมายด้วย"
-    
+
     if not found_vehicle and not face_msg:
          return JSONResponse(status_code=400, content={"status": "error", "message": "ไม่พบยานพาหนะหรือใบหน้าในรูปภาพนี้"})
-         
+
     if found_vehicle:
         return {"status": "success", "message": f"ตรวจพบ '{v_type}สี{v_color}' {face_msg} สำเร็จ!"}
     else:
@@ -3836,17 +5546,17 @@ async def add_plate_target(plate: str = Form(...), note: str = Form(default=""))
     plate_clean = sanitized_text(plate, max_len=32)
     if not plate_clean:
         return JSONResponse(status_code=400, content={"status": "error", "message": "กรุณาระบุหมายเลขป้ายทะเบียน"})
-    
+
     note_clean = sanitized_text(note, max_len=120)
     raw_str = f"{plate_clean} ({note_clean})" if note_clean else f"ป้ายทะเบียน {plate_clean}"
-    
+
     new_target = {
         "plate": plate_clean,
         "note": note_clean,
         "raw": raw_str,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-    
+
     plate_targets.append(new_target)
     save_plate_targets()
     return {"status": "success", "message": f"เพิ่มเป้าหมายทะเบียน: {plate_clean} สำเร็จ"}
@@ -3897,13 +5607,13 @@ def get_route_trace(license_plate: str = Query(...)):
                 hit_name = r["name"] or ""
                 lp_norm = normalize_plate(lp)
                 lp_digits = extract_digits(lp) or extract_digits(hit_name)
-                
+
                 is_match = False
                 if norm and (lp_norm == norm or norm in lp_norm or norm in normalize_plate(hit_name)):
                     is_match = True
                 elif digits and len(digits) >= 3 and (digits == lp_digits or digits in lp_digits or lp_digits.endswith(digits)):
                     is_match = True
-                
+
                 if is_match:
                     matched.append(dict(r))
             return {"status": "success", "data": matched, "query_plate": license_plate}
@@ -3914,6 +5624,23 @@ def get_route_trace(license_plate: str = Query(...)):
 @app.get("/")
 
 def read_root(): return {"message": "YOLO Backend กำลังทำงาน"}
+
+@app.get("/health")
+def health_check():
+    """Lightweight readiness endpoint used by startup scripts and diagnostics."""
+    try:
+        with get_db_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        database = "ok"
+    except Exception:
+        database = "error"
+    return {
+        "status": "ok" if database == "ok" else "degraded",
+        "database": database,
+        "model_loaded": model is not None,
+        "camera_count": len(camera_manager.workers),
+        "local_only": True,
+    }
 
 @app.post("/set_yolo_model")
 def set_yolo_model(model_name: str = Form(...)):
@@ -3926,10 +5653,16 @@ def set_yolo_model(model_name: str = Form(...)):
         new_model = YOLO(model_name).to(DEVICE)
         if "world" in model_name:
             new_model.set_classes(yolo_world_classes + custom_search_terms)
-            
+
         # Swap globally after successful load
-        model = new_model
-        current_yolo_model = model_name
+        with inference_lock:
+            model = new_model
+            current_yolo_model = model_name
+            if DEVICE == "mps":
+                try:
+                    torch.mps.empty_cache()
+                except Exception:
+                    pass
         config["yolo_model"] = current_yolo_model
         save_config(config)
         return {"status": "success", "message": f"YOLO Model changed to {model_name}"}
@@ -3949,7 +5682,7 @@ def set_custom_search(search_term: str = Form(...)):
     else:
         # Split by comma if multiple
         custom_search_terms = [t.strip() for t in search_term.split(",") if t.strip()]
-    
+
     if "world" in current_yolo_model:
         try:
             if model is None:

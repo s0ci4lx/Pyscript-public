@@ -1,30 +1,31 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# เมื่อปิดหน้าต่างหรือกด Ctrl+C ให้หยุดโปรเซสทั้งหมด
-trap "kill 0" EXIT
+cleanup() {
+    [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
+    [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 echo "====================================="
 echo "   🚀 Starting CCTV AI System (Linux)"
 echo "====================================="
 
-echo "[0/2] Cleaning up old processes on ports 8000 & 8081..."
-fuser -k 8000/tcp 2>/dev/null || true
-fuser -k 8081/tcp 2>/dev/null || true
-sleep 1
-
-echo "Checking and installing required packages from requirements.txt..."
-python3 -m pip install --upgrade pip wheel "setuptools<81"
-python3 -m pip install -r requirements.txt
+echo "[0/2] Preparing isolated environment..."
+python3 bootstrap.py || exit 1
+PYTHON_BIN=".venv/bin/python"
+"$PYTHON_BIN" check_ports.py || exit 1
 
 echo "[1/2] Starting Backend (Port 8081)..."
-python3 rtsp_yolo_backend.py &
+"$PYTHON_BIN" rtsp_yolo_backend.py &
+BACKEND_PID=$!
 
 echo "[2/2] Starting Frontend (Port 8000)..."
-python3 -m http.server 8000 &
+"$PYTHON_BIN" serve_frontend.py &
+FRONTEND_PID=$!
 
 echo "Opening Web Browser..."
-sleep 2
+"$PYTHON_BIN" wait_for_backend.py || exit 1
 if command -v xdg-open > /dev/null; then
     xdg-open http://localhost:8000 &
 fi
