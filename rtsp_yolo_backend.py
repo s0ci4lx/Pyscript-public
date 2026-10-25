@@ -696,13 +696,21 @@ def build_telegram_lpr_card(plate_text, match_pct, camera_name, vehicle_img=None
 
     return canvas
 
-def build_telegram_upload(bot_token, chat_id, caption, card_bytes, wide_bytes=None, image_mode="crop"):
+def build_telegram_upload(bot_token, chat_id, caption, card_bytes, wide_bytes=None, image_mode="crop", replay_url=""):
+    entities = []
+    if replay_url:
+        caption = caption.rstrip() + "\n\n"
+        label = "🎬 ดูวิดีโอย้อนหลัง"
+        entities = [{"type": "text_link", "offset": len(caption.encode("utf-16-le")) // 2,
+                     "length": len(label.encode("utf-16-le")) // 2, "url": replay_url}]
+        caption += label
     if image_mode == "album" and wide_bytes is not None:
         media = [
             {
                 "type": "photo",
                 "media": "attach://person_crop",
                 "caption": caption,
+                "caption_entities": entities,
             },
             {
                 "type": "photo",
@@ -722,7 +730,7 @@ def build_telegram_upload(bot_token, chat_id, caption, card_bytes, wide_bytes=No
     selected_name = "wide_scene.jpg" if selected_bytes is wide_bytes else "alert_notification.jpg"
     return (
         f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-        {"chat_id": chat_id, "caption": caption},
+        {"chat_id": chat_id, "caption": caption, "caption_entities": json.dumps(entities, ensure_ascii=False)},
         {"photo": (selected_name, selected_bytes, "image/jpeg")},
     )
 
@@ -920,8 +928,6 @@ def send_telegram_alert_async(
 
             from satun_bridge import playback_url
             replay_url = playback_url(camera_source, detected_at, config.get("satun_public_web_url", ""))
-            if replay_url:
-                caption += f"\n🎬 ดูวิดีโอย้อนหลัง ณ เวลาตรวจจับ:\n{replay_url}"
 
             import requests
             image_mode = str(config.get("telegram_person_image_mode", "album"))
@@ -943,6 +949,7 @@ def send_telegram_alert_async(
                 card_bytes=buf.tobytes(),
                 wide_bytes=wide_buf.tobytes() if wide_buf is not None else None,
                 image_mode=image_mode,
+                replay_url=replay_url,
             )
 
             resp = requests.post(url, data=data, files=files, timeout=15)
