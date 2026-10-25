@@ -44,3 +44,8 @@ vehicle_targets/
 
 # Local release packages
 dist/
+
+# Local server runtime, screenshots, recovery copies and private access notes
+server-runner/*
+!server-runner/watch-servers.ps1
+*.log.previous

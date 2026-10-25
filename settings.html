@@ -331,7 +331,7 @@
         <footer class="satun-footer"><span id="satun-count" role="status"></span><button type="button" class="btn" onclick="closeSatunPicker()">ยกเลิก</button><button id="satun-add-selected" type="button" class="btn btn-primary" disabled onclick="addSatunCamera()">เพิ่มกล้องที่เลือก</button></footer>
     </dialog>
     <script>
-        const API_URL = "http://localhost:8081";
+        const API_URL = window.location.origin + '/api';
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -417,7 +417,7 @@
                 if (resData.status === 'success') {
                     showToast("✅ เปลี่ยนโมเดล AI สำเร็จ");
                 } else {
-                    showToast("❌ เกิดข้อผิดพลาดในการโหลดโมเดล", true);
+                    showToast("❌ เกิดข้อผิดพลาดในการโหลดโมเดล: " + (resData.message || 'ไม่ทราบสาเหตุ'), true);
                 }
             } catch(e) {
                 showToast("❌ ขัดข้อง ไม่สามารถติดต่อ Backend", true);

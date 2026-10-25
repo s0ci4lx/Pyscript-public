@@ -705,14 +705,15 @@
     </div>
 
     <script>
-        const API_URL = "http://localhost:8081";
+        const API_URL = window.location.origin + '/api';
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
             }[ch]));
         }
         function safeMediaUrl(value) {
-            const url = String(value || '');
+            const raw = String(value || '');
+            const url = raw.startsWith('/api/') ? window.location.origin + raw : raw;
             if (url.startsWith(`${API_URL}/alerts_img/`) ||
                 url.startsWith(`${API_URL}/targets_img/`) ||
                 url.startsWith(`${API_URL}/vehicle_targets_img/`)) {

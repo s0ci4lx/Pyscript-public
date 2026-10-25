@@ -266,7 +266,7 @@
     </div>
 
     <script>
-        const API_URL = "http://localhost:8081";
+        const API_URL = window.location.origin + '/api';
         function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -512,6 +512,7 @@
                         ${mediaHTML}
                         <div class="target-name">${escapeHTML(target.raw || (target.type + 'สี' + target.color))}</div>
                         <div class="target-group">ประเภท: ${escapeHTML(target.type)} <br> สี: ${escapeHTML(target.color)}</div>
+                        <button class="btn btn-ghost btn-sm" data-action="views">จัดการภาพ (${(target.views || [target.filename]).filter(x => x !== undefined).length})</button>
                         <div class="btn-group" style="margin-top: 15px;">
                             <button class="btn btn-ghost btn-sm" data-action="edit"><i class="ri-edit-line"></i> แก้ไข</button>
                             <button class="btn btn-soft-danger btn-sm" onclick="removeVehicleTarget(${index})"><i class="ri-delete-bin-line"></i> ลบ</button>
@@ -520,12 +521,62 @@
                     const img = card.querySelector(".target-img");
                     if (img) img.addEventListener("click", () => openModal(img.dataset.imgUrl));
                     card.querySelector('[data-action="edit"]').addEventListener("click", () => editVehicleTarget(index, target.type || '', target.color || '', target.raw || ''));
+                    card.querySelector('[data-action="views"]').addEventListener('click', () => manageVehicleViews(index, target));
                     grid.appendChild(card);
                 });
             } catch (err) {
                 console.error(err);
                 document.getElementById("vehicle-grid").innerHTML = `<p class="empty-state" style="color: var(--danger);">ไม่สามารถโหลดข้อมูลยานพาหนะได้</p>`;
             }
+        }
+
+        async function manageVehicleViews(index, target) {
+            const views = target.views || [target.filename];
+            await Swal.fire({
+                title: 'ภาพอ้างอิงรถคันนี้',
+                html: '<div id="vehicle-view-gallery" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center"></div><label style="display:block;margin-top:16px">เพิ่มภาพอีกมุมของรถคันนี้<input id="vehicle-view-upload" type="file" accept="image/*"></label>',
+                showConfirmButton: false, showCloseButton: true,
+                didOpen: () => {
+                    const gallery = document.getElementById('vehicle-view-gallery');
+                    views.forEach((filename, viewIndex) => {
+                        const item = document.createElement('div');
+                        item.style.width = '140px';
+                        if (filename) {
+                            const image = document.createElement('img');
+                            image.src = safeAssetUrl('vehicle_targets_img', filename);
+                            image.alt = 'ภาพอ้างอิง ' + (viewIndex + 1);
+                            image.style.cssText = 'width:140px;height:110px;object-fit:contain';
+                            item.appendChild(image);
+                        } else { item.textContent = 'ภาพเก่า ' + (viewIndex + 1) + ' (ไม่มีไฟล์ภาพ)'; }
+                        const button = document.createElement('button');
+                        button.className = 'btn btn-soft-danger btn-sm';
+                        button.textContent = 'ลบภาพนี้'; button.disabled = views.length <= 1;
+                        button.onclick = async () => {
+                            if (!confirm('ลบภาพอ้างอิงนี้ออกจากการเทียบรถ?')) return;
+                            button.disabled = true;
+                            try {
+                                const response = await fetch(`${API_URL}/vehicle_targets/${index}/views/${viewIndex}`, {method:'DELETE'});
+                                const result = await response.json();
+                                if (!response.ok) throw new Error(result.message);
+                                Swal.close(); showToast(result.message); loadVehicleTargets();
+                            } catch (error) { showToast(error.message, true); button.disabled = false; }
+                        };
+                        item.appendChild(button); gallery.appendChild(item);
+                    });
+                    document.getElementById('vehicle-view-upload').onchange = async event => {
+                        const input = event.target;
+                        if (!input.files.length) return;
+                        input.disabled = true;
+                        try {
+                            const body = new FormData(); body.append('file', input.files[0]);
+                            const response = await fetch(`${API_URL}/add_vehicle_image_target?target_index=${index}`, {method:'POST',body});
+                            const result = await response.json();
+                            if (!response.ok || result.status !== 'success') throw new Error(result.message);
+                            Swal.close(); showToast(result.message); loadVehicleTargets();
+                        } catch (error) { showToast(error.message, true); input.disabled = false; }
+                    };
+                }
+            });
         }
 
         async function addPersonTarget(e) {

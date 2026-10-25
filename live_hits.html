@@ -458,7 +458,7 @@
     </div>
 
     <script>
-        const API_URL = `${window.location.protocol}//${window.location.hostname}:8081`;
+        const API_URL = window.location.origin + '/api';
         let wallHits = [];
         let wallFilter = 'all';
         let wallCols = 3;
@@ -488,6 +488,7 @@
 
         function safeMediaUrl(path) {
             if (!path) return '';
+            if (path.startsWith('/api/')) return window.location.origin + path;
             if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
                 return path;
             }

@@ -32,7 +32,7 @@ safe_face_locations = serialized_face_call(face_recognition.face_locations)
 safe_face_encodings = serialized_face_call(face_recognition.face_encodings)
 
 if torch.cuda.is_available():
-    DEVICE = "0"
+    DEVICE = "cuda:0"
 elif torch.backends.mps.is_available():
     DEVICE = "mps"
 else:
@@ -737,6 +737,7 @@ def send_telegram_alert_async(
     plate_text=None,
     plate_img_path=None,
     wide_frame_img=None,
+    camera_source=None,
 ):
     if os.environ.get("CCTV_DISABLE_TELEGRAM", "").strip().lower() in {"1", "true", "yes"}:
         return
@@ -774,6 +775,10 @@ def send_telegram_alert_async(
         if now_ts - last_ts < cooldown:
             return
         telegram_last_sent[dedup_key] = now_ts
+
+    # Capture event time before image rendering and Telegram upload.
+    from datetime import timezone
+    detected_at = datetime.fromtimestamp(now_ts, timezone.utc)
 
     crop_copy = live_crop_img.copy() if (live_crop_img is not None and live_crop_img.size > 0) else None
     wide_copy = wide_frame_img.copy() if (wide_frame_img is not None and wide_frame_img.size > 0) else None
@@ -822,7 +827,8 @@ def send_telegram_alert_async(
             if not ok:
                 return
 
-            ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            from zoneinfo import ZoneInfo
+            ts_str = detected_at.astimezone(ZoneInfo("Asia/Bangkok")).strftime("%Y-%m-%d %H:%M:%S")
             raw_name = str(target_name or "")
 
             # Contextual caption tailored to situation
@@ -911,6 +917,11 @@ def send_telegram_alert_async(
                     f"📹 กล้อง: {telegram_caption_text(camera_name, max_len=28)}\n"
                     f"⏰ เวลา: {ts_str}\n"
                 )
+
+            from satun_bridge import playback_url
+            replay_url = playback_url(camera_source, detected_at, config.get("satun_public_web_url", ""))
+            if replay_url:
+                caption += f"\n🎬 ดูวิดีโอย้อนหลัง ณ เวลาตรวจจับ:\n{replay_url}"
 
             import requests
             image_mode = str(config.get("telegram_person_image_mode", "album"))
@@ -2278,6 +2289,7 @@ class CameraWorker:
                 target_name=event["name"],
                 match_pct=event["confidence"],
                 camera_name=self.name,
+                camera_source=self.url,
                 live_crop_img=cv2.imread(crop_path) if crop_path and os.path.exists(crop_path) else None,
                 plate_text=plate,
                 plate_img_path=os.path.join("alerts", plate_filename) if plate_filename else None,
@@ -2957,6 +2969,7 @@ class CameraWorker:
                                     target_name=name,
                                     match_pct=match_percentage,
                                     camera_name=self.name,
+                                    camera_source=self.url,
                                     live_crop_img=v_crop_img,
                                     wide_frame_img=annotated_frame,
                                 )
@@ -3136,6 +3149,7 @@ class CameraWorker:
                                                 target_name=display_name,
                                                 match_pct=match_percentage,
                                                 camera_name=self.name,
+                                                camera_source=self.url,
                                                 live_crop_img=v_crop_img,
                                                 target_img_path=target_veh_img,
                                                 plate_text=plate_text,
@@ -3224,6 +3238,7 @@ class CameraWorker:
                                             target_name=hit_info_name,
                                             match_pct=match_percentage,
                                             camera_name=self.name,
+                                            camera_source=self.url,
                                             live_crop_img=vehicle_crop_img,
                                             wide_frame_img=annotated_frame
                                         )
@@ -3334,6 +3349,7 @@ class CameraWorker:
                                                     target_name=name,
                                                     match_pct=match_percentage,
                                                     camera_name=self.name,
+                                                    camera_source=self.url,
                                                     live_crop_img=face_crop_img,
                                                     target_img_path=target_face_img,
                                                     wide_frame_img=annotated_frame,
@@ -3431,6 +3447,7 @@ class CameraWorker:
                                     target_name=hit_info_name,
                                     match_pct=match_percentage,
                                     camera_name=self.name,
+                                    camera_source=self.url,
                                     live_crop_img=person_crop_img,
                                     wide_frame_img=annotated_frame,
                                 )
@@ -5116,6 +5133,30 @@ def satun_cameras():
         return JSONResponse(status_code=503, content={"message": "เชื่อมต่อระบบสตูลไม่ได้ กรุณาเปิดระบบและตรวจ SATUN_API_URL"})
 
 
+@app.post("/satun/reconnect")
+def reconnect_satun_nvr(payload: dict = Body(...)):
+    from satun_bridge import reconnect_nvr
+    port = payload.get("port")
+    if type(port) is not int:
+        return JSONResponse(status_code=400, content={"message": "กรุณาเลือก NVR"})
+    try:
+        reconnect_nvr(port)
+    except Exception:
+        return JSONResponse(status_code=502, content={"message": "เชื่อมต่อ NVR ใหม่ไม่สำเร็จ กรุณาตรวจระบบสตูลและเครือข่าย"})
+    resumed = 0
+    for camera in camera_manager.get_all_statuses():
+        parsed = urllib.parse.urlsplit(str(camera.get("url", "")))
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.path != "/api/live/stream":
+            continue
+        if urllib.parse.parse_qs(parsed.query).get("port") != [str(port)]:
+            continue
+        worker = camera_manager.get_worker(camera["id"])
+        if worker and camera.get("stream_state") == "playing":
+            worker.reconnect_requested = True
+            resumed += 1
+    return {"status": "success", "message": f"รับ session ใหม่แล้ว กำลังเชื่อมต่อภาพ {resumed} กล้อง"}
+
+
 @app.post("/satun/cameras")
 def add_satun_camera(payload: dict = Body(...)):
     from satun_bridge import list_cameras, stream_url
@@ -5297,6 +5338,33 @@ async def add_multiple_targets(files: list[UploadFile] = File(...)):
 def get_vehicle_targets_list():
     return vehicle_targets
 
+@app.delete("/vehicle_targets/{index}/views/{view_index}")
+def remove_vehicle_view(index: int, view_index: int):
+    with targets_lock:
+        if not 0 <= index < len(vehicle_targets):
+            return JSONResponse(status_code=404, content={"message": "ไม่พบเป้าหมาย"})
+        target = vehicle_targets[index]
+        path = os.path.join("vehicle_targets", os.path.basename(target.get("embedding_file", "")))
+        stack = np.atleast_2d(np.load(path))
+        if not 0 <= view_index < len(stack):
+            return JSONResponse(status_code=404, content={"message": "ไม่พบภาพ"})
+        if len(stack) <= 1:
+            return JSONResponse(status_code=400, content={"message": "ต้องเหลือภาพอย่างน้อย 1 ภาพ หรือลบเป้าหมายทั้งคัน"})
+        views = list(target.get("views", [target.get("filename")] + [None] * (len(stack) - 1)))
+        views.pop(view_index)
+        target["views"] = views
+        target["filename"] = next((name for name in views if name), target["filename"])
+        # Retain the image file on disk for recovery; remove it from matching.
+        stack = np.delete(stack, view_index, axis=0)
+        np.save(path, stack)
+        with open(VEHICLE_TARGETS_FILE, "w", encoding="utf-8") as handle:
+            json.dump(vehicle_targets, handle, indent=4, ensure_ascii=False)
+        vehicle_target_embeddings.pop(target["filename"], None)
+        vehicle_target_embeddings[target["filename"]] = stack
+    load_vehicle_targets()
+    return {"status": "success", "message": f"ลบภาพแล้ว เหลือ {len(stack)} ภาพ"}
+
+
 @app.post("/add_vehicle_target")
 async def add_vehicle_target(text: str = Form(...)):
     global vehicle_targets
@@ -5335,8 +5403,11 @@ async def add_vehicle_target(text: str = Form(...)):
     return {"status": "success", "message": f"เพิ่มเป้าหมาย: {text} ({v_type} สี{v_color})"}
 
 @app.post("/add_vehicle_image_target")
-async def add_vehicle_image_target(file: UploadFile = File(...)):
+async def add_vehicle_image_target(file: UploadFile = File(...), target_index: int = Query(None)):
     global vehicle_targets
+
+    if target_index is not None and not 0 <= target_index < len(vehicle_targets):
+        return JSONResponse(status_code=404, content={"status": "error", "message": "ไม่พบเป้าหมาย"})
 
     raw_ext = os.path.splitext(file.filename or "")[1].lower()
     if raw_ext not in ALLOWED_IMAGE_EXTS:
@@ -5390,6 +5461,8 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
         v_color = get_vehicle_color(v_crop)
 
         emb = get_vehicle_embedding(v_crop)  # (512,) or None
+        if emb is None:
+            return JSONResponse(status_code=503, content={"status": "error", "message": "โมเดลเทียบภาพรถยังไม่พร้อม กรุณาลองใหม่"})
 
         # Multi-shot: if this photo clearly matches an existing target, append it as an extra
         # viewpoint instead of creating a duplicate. Otherwise create a new target.
@@ -5407,24 +5480,35 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
             if best_t is not None and best_sim >= VEHICLE_MERGE_SIM:
                 merged_into = best_t
 
+        if target_index is not None:
+            merged_into = vehicle_targets[target_index]
+
         if merged_into is not None:
             # Append this viewpoint to the matched target's embedding file.
             emb_file = merged_into.get("embedding_file")
             try:
                 if emb_file and os.path.exists(os.path.join("vehicle_targets", emb_file)):
                     stack = np.atleast_2d(np.load(os.path.join("vehicle_targets", emb_file)))
+                    if any(np.allclose(row, emb, rtol=1e-5, atol=1e-6) for row in stack):
+                        return {"status": "success", "message": "มีภาพอ้างอิงนี้แล้ว ไม่เพิ่มภาพซ้ำ"}
                     stack = np.vstack([stack, emb[None]])
                 else:
                     emb_file = os.path.splitext(merged_into.get("filename"))[0] + ".npy"
                     merged_into["embedding_file"] = emb_file
                     stack = emb[None]
                 np.save(os.path.join("vehicle_targets", emb_file), stack)
+                views = merged_into.setdefault("views", [merged_into.get("filename")] + [None] * (len(stack) - 2))
+                view_name = f"view_{time.time_ns()}.jpg"
+                if not cv2.imwrite(os.path.join("vehicle_targets", view_name), v_crop):
+                    raise OSError("Cannot save viewpoint image")
+                views.append(view_name)
                 print(f"[ReID] Added viewpoint #{len(stack)} to existing target {merged_into.get('raw')}")
             except Exception as e:
                 print(f"[ReID] Failed to append viewpoint: {e}")
+                return JSONResponse(status_code=500, content={"status": "error", "message": "บันทึกภาพอ้างอิงไม่สำเร็จ"})
         else:
             # Save a new target (crop + embedding).
-            timestamp = int(time.time())
+            timestamp = time.time_ns()
             v_filename = f"vehicle_{timestamp}.jpg"
             cv2.imwrite(os.path.join("vehicle_targets", v_filename), v_crop)
             new_target = {
@@ -5433,6 +5517,7 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
                 "raw": f"{v_type}สี{v_color} (เฉพาะคัน)",
                 "filename": v_filename
             }
+            new_target["views"] = [v_filename]
             if emb is not None:
                 emb_filename = f"vehicle_{timestamp}.npy"
                 try:
@@ -5482,6 +5567,8 @@ async def add_vehicle_image_target(file: UploadFile = File(...)):
          return JSONResponse(status_code=400, content={"status": "error", "message": "ไม่พบยานพาหนะหรือใบหน้าในรูปภาพนี้"})
 
     if found_vehicle:
+        if merged_into is not None:
+            return {"status": "success", "message": f"เพิ่มภาพอีกมุมในเป้าหมายเดิมแล้ว ({len(stack)} ภาพ)"}
         return {"status": "success", "message": f"ตรวจพบ '{v_type}สี{v_color}' {face_msg} สำเร็จ!"}
     else:
         return {"status": "success", "message": f"ไม่พบรถ แต่พบใบหน้าบุคคลและเพิ่มเป้าหมายสำเร็จ!"}

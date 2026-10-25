@@ -25,7 +25,10 @@ def is_loopback_host(host: str | None) -> bool:
     if normalized.lower() == "localhost":
         return True
     try:
-        return ipaddress.ip_address(normalized).is_loopback
+        address = ipaddress.ip_address(normalized)
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        return address.is_loopback
     except ValueError:
         return False
 

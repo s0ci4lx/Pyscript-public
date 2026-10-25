@@ -1,7 +1,7 @@
 """Read Satun's camera catalog and use its authenticated MJPEG gateway."""
 import json
 import os
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.parse import urlencode, urlsplit
 
 def base_url():
@@ -35,3 +35,35 @@ def stream_url(camera):
     return base_url() + "/api/live/stream?" + urlencode({
         "port": camera["port"], "channel": camera["channel"], "quality": "main",
     })
+
+
+def reconnect_nvr(port):
+    request = Request(base_url() + '/api/live/reconnect?' + urlencode({'port': port}), data=b'', method='POST')
+    with urlopen(request, timeout=90) as response:
+        return json.load(response)
+
+
+def playback_url(camera_source, detected_at, public_web_url=""):
+    """Link a Satun stream to its NVR clip using the captured event timestamp."""
+    from urllib.parse import parse_qs
+    public_web_url = (os.environ.get("SATUN_PUBLIC_WEB_URL") or public_web_url or "").strip().rstrip("/")
+    public = urlsplit(public_web_url)
+    if public.scheme not in {"http", "https"} or not public.hostname:
+        return ""
+    source = urlsplit(str(camera_source or ""))
+    local = urlsplit(base_url())
+    if source.netloc != local.netloc or source.path != "/api/live/stream":
+        return ""
+    try:
+        params = parse_qs(source.query)
+        port, channel = int(params["port"][0]), int(params["channel"][0])
+        if not (1 <= port <= 65535 and 1 <= channel <= 32):
+            return ""
+        if detected_at.tzinfo is None:
+            from zoneinfo import ZoneInfo
+            detected_at = detected_at.replace(tzinfo=ZoneInfo("Asia/Bangkok"))
+        query = urlencode(dict(nvr_port=port, channel=channel,
+                               timestamp=int(detected_at.timestamp()), seconds=30))
+        return public_web_url + "/nvr/playback?" + query
+    except (KeyError, ValueError, TypeError, IndexError):
+        return ""

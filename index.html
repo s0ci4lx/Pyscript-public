@@ -368,6 +368,7 @@
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" id="reconnect-nvr-button" class="btn-bulk-cam" onclick="reconnectNvr()">↻ เชื่อมต่อ NVR ใหม่</button>
                         <button type="button" class="btn-bulk-cam btn-bulk-play" onclick="playAllCameras()" title="เริ่มตรวจจับทุกกล้องพร้อมกัน">
                             <i class="ri-play-fill"></i>
                             <span>เริ่มตรวจจับทุกกล้อง</span>
@@ -407,7 +408,7 @@
                         </div>
                     </div>
                     <div class="plot-box">
-                        <img id="video-feed" src="http://localhost:8081/video_feed" alt="รอภาพจากเซิร์ฟเวอร์..." style="min-height: 300px; display: none; width: 100%;">
+                        <img id="video-feed" src="/api/video_feed" alt="รอภาพจากเซิร์ฟเวอร์..." style="min-height: 300px; display: none; width: 100%;">
                         <!-- Video file preview (shown before starting) -->
                         <div id="video-preview-wrap" style="display: none; position: relative; width: 100%; background: #0f172a;">
                             <img id="video-preview" alt="ตัวอย่างวิดีโอ" style="display: block; width: 100%; min-height: 300px; object-fit: contain; background: #0f172a;">
@@ -500,6 +501,8 @@
                         </div>
                     </div>
                     <p id="hitlist-camera-label" style="margin-bottom: 8px; font-size: 0.8rem; color: var(--text-muted);">คลิกที่รูปเพื่อขยาย</p>
+                    <button id="hitlist-show-all" type="button" class="btn-bulk-cam" style="margin-bottom:8px;display:none" onclick="showAllVisibleCameraHits()">ดูทุกกล้องในจอ</button>
+                    <select id="hitlist-camera-filter" aria-label="กรองกล้องใน Hit List" style="width:100%;margin-bottom:8px" onchange="hitListSelectedCamera=this.value;updateHitListHeaderLabel();fetchAlerts(true)"><option value="">ทุกกล้องในจอ</option></select>
                     <div id="alerts-output" class="scroll-area hitlist-scroll-area" aria-busy="false">
                         <div id="hit-list-items" class="hit-list-items">
                             <div class="empty-state">ยังไม่พบเป้าหมาย</div>
@@ -678,7 +681,27 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8081';
+        const API_URL = window.location.origin + '/api';
+        async function reconnectNvr() {
+            const button = document.getElementById('reconnect-nvr-button');
+            button.disabled = true;
+            try {
+                const response = await fetch(`${API_URL}/satun/cameras`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message || 'โหลด NVR ไม่สำเร็จ');
+                const options = {};
+                for (const camera of data.cameras) options[camera.port] = `${camera.nvr} (พอร์ต ${camera.port})`;
+                if (!Object.keys(options).length) throw new Error('ไม่พบ NVR ในรายการกล้อง');
+                const {value: port} = await Swal.fire({title:'เชื่อมต่อ NVR ใหม่',input:'select',inputOptions:options,inputPlaceholder:'เลือกเครื่อง NVR',showCancelButton:true,confirmButtonText:'เชื่อมต่อใหม่',cancelButtonText:'ยกเลิก',text:'รีเฟรชการเข้าสู่ระบบและเชื่อมภาพใหม่เฉพาะเครื่องที่เลือก กล้องที่หยุดไว้จะไม่ถูกเปิด',inputValidator:value => !value ? 'กรุณาเลือก NVR' : undefined});
+                if (!port) return;
+                button.textContent = 'กำลังเชื่อมต่อ NVR…';
+                const result = await fetch(`${API_URL}/satun/reconnect`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({port:Number(port)})});
+                const message = await result.json();
+                if (!result.ok) throw new Error(message.message || 'เชื่อมต่อไม่สำเร็จ');
+                await Swal.fire('รับ session ใหม่แล้ว',message.message,'success');
+            } catch (error) { await Swal.fire('เชื่อมต่อไม่สำเร็จ',error.message,'error'); }
+            finally { button.disabled = false; button.textContent = '↻ เชื่อมต่อ NVR ใหม่'; }
+        }
         let videoFeedReconnectTimer = null;
         let videoFeedReconnectDelay = 1000;
 
@@ -714,7 +737,8 @@
             }[ch]));
         }
         function safeMediaUrl(value) {
-            const url = String(value || '');
+            const raw = String(value || '');
+            const url = raw.startsWith('/api/') ? window.location.origin + raw : raw;
             if (url.startsWith(`${API_URL}/alerts_img/`) ||
                 url.startsWith(`${API_URL}/targets_img/`) ||
                 url.startsWith(`${API_URL}/vehicle_targets_img/`) ||
@@ -760,6 +784,7 @@
         let currentGridMode = getSavedGridMode();
         let cachedCameras = [];
         let activeCameraId = '';
+        let hitListSelectedCamera = '';
         let gridSlotCameras = [];
 
         // Finite requests keep large walls below browser connection limits.
@@ -1145,16 +1170,37 @@
             fetchAlerts(true);
         }
 
+        function showAllVisibleCameraHits() {
+            hitListSelectedCamera = '';
+            updateMultiCameraWallStatus(cachedCameras);
+            updateHitListHeaderLabel();
+            fetchAlerts(true);
+        }
+
         function updateHitListHeaderLabel() {
             const labelEl = document.getElementById('hitlist-camera-label');
+            const clearFilterButton = document.getElementById('hitlist-show-all');
+            if (clearFilterButton) clearFilterButton.style.display = hitListSelectedCamera ? '' : 'none';
+            const selector = document.getElementById('hitlist-camera-filter');
+            const visible = getVisibleSlotCameraIds();
+            if (hitListSelectedCamera && !visible.includes(hitListSelectedCamera)) hitListSelectedCamera = '';
+            if (selector) {
+                const options = [new Option('ทุกกล้องในจอ', '')];
+                for (const id of [...new Set(visible)]) {
+                    const camera = cachedCameras.find(item => item.id === id);
+                    options.push(new Option(camera?.name || id, id));
+                }
+                selector.replaceChildren(...options);
+                selector.value = hitListSelectedCamera;
+            }
             if (!labelEl) return;
-            if (activeCameraId) {
-                const cam = cachedCameras.find(c => c.id === activeCameraId);
-                const name = cam ? cam.name : activeCameraId;
-                labelEl.innerHTML = `<span style="display: inline-flex; align-items: center; gap: 4px; color: #38bdf8; font-weight: 600;"><i class="ri-focus-3-line"></i> กล้อง: ${escapeHTML(name)}</span> <span style="font-size: 0.72rem; color: var(--text-muted);">(คลิกกล้องเดิมเพื่อดูทุกกล้อง)</span>`;
+            if (hitListSelectedCamera) {
+                const cam = cachedCameras.find(c => c.id === hitListSelectedCamera);
+                const name = cam ? cam.name : hitListSelectedCamera;
+                labelEl.textContent = 'Hit List เฉพาะกล้อง: ' + name;
             } else if (currentGridMode !== '1x1') {
                 const count = getVisibleSlotCameraIds().length;
-                labelEl.innerHTML = `<span style="display: inline-flex; align-items: center; gap: 4px; color: #10b981; font-weight: 600;"><i class="ri-grid-fill"></i> แสดงทุกกล้อง (${count} จอ)</span> <span style="font-size: 0.72rem; color: var(--text-muted);">(คลิกที่กล้องเพื่อดูเฉพาะกล้องนั้น)</span>`;
+                labelEl.textContent = `แสดงทุกกล้อง (${count} จอ) · เลือกกรองจากเมนูด้านล่าง`;
             } else {
                 labelEl.textContent = 'คลิกที่รูปเพื่อขยาย';
             }
@@ -1864,7 +1910,8 @@
 
         async function requestLegacyHits() {
             const params = new URLSearchParams();
-            if (activeCameraId) params.set('camera_id', activeCameraId);
+            const filter = currentHitCameraFilter();
+            if (filter !== 'all') params.set('camera_id', filter);
             const suffix = params.size ? `?${params}` : '';
             const response = await fetch(`${API_URL}/target_hits${suffix}`);
             if (!response.ok) throw new Error(`Legacy Hit List request failed (${response.status})`);
@@ -1876,11 +1923,7 @@
             const params = new URLSearchParams({ limit: String(limit) });
             let targetCamera = camera;
             if (!targetCamera) {
-                targetCamera = activeCameraId;
-                if (!targetCamera && currentGridMode !== '1x1') {
-                    const visible = getVisibleSlotCameraIds();
-                    if (visible.length > 0) targetCamera = visible.join(',');
-                }
+                targetCamera = currentHitCameraFilter();
             }
             if (targetCamera && targetCamera !== 'all') {
                 params.set('camera_id', targetCamera);
@@ -1895,13 +1938,18 @@
             return response.json();
         }
 
-        async function fetchAlerts(forceReset = false) {
-            let requestedCamera = activeCameraId;
-            if (!requestedCamera && currentGridMode !== '1x1') {
+        function currentHitCameraFilter() {
+            let requestedCamera = hitListSelectedCamera;
+            if (!requestedCamera) {
                 const visible = getVisibleSlotCameraIds();
                 if (visible.length > 0) requestedCamera = visible.join(',');
             }
             if (!requestedCamera) requestedCamera = 'all';
+            return requestedCamera;
+        }
+
+        async function fetchAlerts(forceReset = false) {
+            const requestedCamera = currentHitCameraFilter();
 
             if (hitListCameraId !== requestedCamera) forceReset = true;
             if (hitListLoading) return;
@@ -1917,14 +1965,14 @@
                     const collected = [];
                     let afterId = newestId;
                     do {
-                        data = await requestHitPage({ afterId, limit: 50 });
+                        data = await requestHitPage({ afterId, limit: 50, camera: requestedCamera });
                         const pageItems = Array.isArray(data.items) ? data.items : [];
                         collected.push(...pageItems);
                         if (pageItems.length > 0) afterId = pageItems[pageItems.length - 1].id;
                     } while (data.has_more && data.items.length > 0);
                     // Multi-frame LPR review updates the existing row instead
                     // of creating another event, so also refresh recent IDs.
-                    const latestPage = await requestHitPage({ limit: HIT_PAGE_SIZE });
+                    const latestPage = await requestHitPage({ limit: HIT_PAGE_SIZE, camera: requestedCamera });
                     const mergedById = new Map();
                     for (const hit of [...collected.reverse(), ...(latestPage.items || [])]) {
                         mergedById.set(Number(hit.id), hit);
@@ -1935,8 +1983,10 @@
                         has_more: hitListHasMore,
                     };
                 } else {
-                    data = await requestHitPage();
+                    data = await requestHitPage({ camera: requestedCamera });
                 }
+                // Discard an earlier camera's response when selection changed mid-request.
+                if (requestedCamera !== currentHitCameraFilter()) return;
                 const items = Array.isArray(data.items) ? data.items : [];
                 const itemsDiv = document.getElementById('hit-list-items');
                 hitListLegacyMode = Boolean(data.legacy);
@@ -1990,6 +2040,7 @@
             } finally {
                 hitListLoading = false;
                 alertsDiv.setAttribute('aria-busy', 'false');
+                if (requestedCamera !== currentHitCameraFilter()) setTimeout(() => fetchAlerts(true), 0);
             }
         }
 
