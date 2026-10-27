@@ -9,7 +9,7 @@ import unittest
 
 class FaceNativeLockTests(unittest.TestCase):
     def test_shared_lock_serializes_detector_and_encoder(self):
-        tree = ast.parse((Path(__file__).resolve().parents[1] / "rtsp_yolo_backend.py").read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "rtsp_yolo_backend.py").read_text(encoding='utf-8'))
         wrapper = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "serialized_face_call")
         scope = {"wraps": wraps, "face_native_lock": threading.RLock()}
         exec(compile(ast.Module(body=[wrapper], type_ignores=[]), "<wrapper>", "exec"), scope)

@@ -3,6 +3,7 @@ import json
 import os
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode, urlsplit
+from satun_auth import open_satun
 
 def base_url():
     value = os.environ.get("SATUN_API_URL", "http://127.0.0.1:8765").rstrip("/")
@@ -12,7 +13,7 @@ def base_url():
     return value
 
 def list_cameras():
-    with urlopen(base_url() + "/api/nvr-cameras", timeout=8) as response:
+    with open_satun(base_url() + "/api/nvr-cameras", timeout=8) as response:
         catalog = json.load(response)
     result = []
     for nvr in catalog.get("nvrs", []):
@@ -38,8 +39,7 @@ def stream_url(camera):
 
 
 def reconnect_nvr(port):
-    request = Request(base_url() + '/api/live/reconnect?' + urlencode({'port': port}), data=b'', method='POST')
-    with urlopen(request, timeout=90) as response:
+    with open_satun(base_url() + '/api/live/reconnect?' + urlencode({'port': port}), data=b'', timeout=90) as response:
         return json.load(response)
 
 

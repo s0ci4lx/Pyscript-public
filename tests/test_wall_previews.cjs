@@ -45,7 +45,7 @@ async function check(size) {
 }
 (async()=>{for(const size of [4,9,16,36,182])await check(size);})().catch(e=>{console.error(e);process.exitCode=1;});
 
-// Verify the streaming threshold, distribution, and fallback without camera hardware.
+// Authenticated previews must stay on one origin and use bounded finite requests.
 function checkStreaming() {
     for (const size of [9,16,17]) {
         const images=Array.from({length:size},(_,i)=>({
@@ -54,27 +54,21 @@ function checkStreaming() {
         }));
         let requests=0;
         const ctx=vm.createContext({
-            currentGridMode:'auto', API_URL:'http://localhost:8081', AbortController, URL,
+            currentGridMode:'auto', API_URL:'http://localhost:8000/api', AbortController, URL,
             document:{hidden:false,querySelectorAll:()=>images,addEventListener(){}},
             window:{addEventListener(){}},setTimeout:()=>1,clearTimeout(){},
-            fetch:()=>{requests++;return new Promise(()=>{});}
+            fetch:(url,options)=>{
+                assert.ok(url.startsWith('http://localhost:8000/api/preview_frame/'));
+                assert.equal(options.cache,'no-store');
+                requests++;return new Promise(()=>{});
+            }
         });
         vm.runInContext(scheduler+';startWallPreviews()',ctx);
-        if(size<=16){
-            const counts={};
-            images.forEach(image=>{
-                const host=new URL(image.src).hostname;
-                counts[host]=(counts[host]||0)+1;
-                assert.equal(image.crossOrigin,'anonymous');
-            });
-            assert.ok(Math.max(...Object.values(counts))<=4);
-            assert.equal(requests,0);
-            images[0].onerror();
-            assert.equal(requests,3,'stream error switches to bounded fallback');
-        } else assert.equal(requests,3,'large wall uses bounded requests');
+        assert.equal(requests,3,'authenticated wall uses bounded same-origin requests');
+        images.forEach(image=>assert.equal(image.crossOrigin,undefined,'no anonymous cross-origin credential requests'));
         vm.runInContext('stopWallPreviews()',ctx);
         images.forEach(image=>assert.equal(image.src,undefined));
     }
-    console.log('Streaming: 9/16 slots distributed; 17 slots and errors fall back; streams cleaned');
+    console.log('Authenticated previews: same origin, bounded requests and cleanup passed');
 }
 checkStreaming();

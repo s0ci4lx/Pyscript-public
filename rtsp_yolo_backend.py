@@ -61,6 +61,8 @@ from lpr_utils import (
     prepare_lpr_ocr_images,
 )
 from stream_utils import JpegFrameCache, video_catchup_frames, LatestFrameCapture
+from satun_auth import is_satun_stream, SatunCapture
+from dashboard_security import PyscriptSecurity, background_states, persist_camera_state
 from lpr_pipeline import LprPipeline, ACTIVE
 from lpr_utils import plate_read_kind
 try:
@@ -2038,6 +2040,8 @@ class CameraWorker:
         self.stream_state = "stopped"  # Only active/requested cameras run AI inference
         self.frame_skip = int(self.cam_config.get("frame_skip", current_frame_skip))
         self.fps = 0.0
+        self.inference_frames = 0
+        self.last_inference_at = None
         self.jpeg_cache = JpegFrameCache(quality=80)
 
         # Seekable / video file properties
@@ -2114,6 +2118,7 @@ class CameraWorker:
             self.thread.start()
 
     def stop(self):
+        persist_camera_state(self.cam_id, "stopped")
         self.stream_state = "stopped"
         self.lpr_pipeline.reset("stopped")
         with self.frame_lock:
@@ -2130,13 +2135,16 @@ class CameraWorker:
         self.stop()
 
     def play(self):
+        persist_camera_state(self.cam_id, "playing")
         self.stream_state = "playing"
         self.reconnect_requested = True
 
     def pause(self):
+        persist_camera_state(self.cam_id, "paused")
         self.stream_state = "paused"
 
     def restart(self):
+        persist_camera_state(self.cam_id, "playing")
         self.reconnect_requested = True
         self.stream_state = "playing"
 
@@ -2520,6 +2528,8 @@ class CameraWorker:
             "is_enabled": self.is_enabled,
             "stream_state": self.stream_state,
             "fps": round(self.fps, 1),
+            "inference_frames": self.inference_frames,
+            "last_inference_at": self.last_inference_at,
             "lpr_health": self.lpr_pipeline.snapshot(),
             "unknown_count": self.unknown_persons_count,
             "line_cross_count": self.line_cross_count,
@@ -2580,13 +2590,12 @@ class CameraWorker:
                     cap = ScreenGrabber(monitor_index=monitor_idx)
                 else:
                     cam_source = int(self.url) if str(self.url).isdigit() else self.url
-                    if (config.get("satun_async_capture", False)
-                            and urllib.parse.urlsplit(str(cam_source)).path == "/api/live/stream"):
+                    if is_satun_stream(cam_source):
                         source = str(cam_source)
-                        cap = LatestFrameCapture(lambda: cv2.VideoCapture(
-                            source, cv2.CAP_FFMPEG,
-                            [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
-                             cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000]))
+                        if config.get("satun_async_capture", False):
+                            cap = LatestFrameCapture(lambda: SatunCapture(source))
+                        else:
+                            cap = SatunCapture(source)
                     else:
                         cap = cv2.VideoCapture(cam_source, cv2.CAP_FFMPEG if not str(self.url).isdigit() else cv2.CAP_ANY)
 
@@ -2833,6 +2842,8 @@ class CameraWorker:
                             except Exception:
                                 pass
 
+                self.inference_frames += 1
+                self.last_inference_at = time.time()
                 annotated_frame = frame.copy()
 
                 # Draw detection zone or crossing line
@@ -3510,6 +3521,7 @@ class CameraManager:
         self.lock = threading.Lock()
 
     def initialize_from_json(self):
+        saved_states = background_states()
         cams = load_cameras()
         if not cams:
             cams = DEFAULT_CAMERAS
@@ -3528,6 +3540,10 @@ class CameraManager:
                 worker = CameraWorker(cid, cam.get("name", cid), cam.get("url", "0"), cam_cfg)
                 self.workers[cid] = worker
                 worker.start()
+                if saved_states.get(str(cid)) == "playing":
+                    worker.play()
+                elif saved_states.get(str(cid)) == "paused":
+                    worker.pause()
 
             self.active_cam_id = None
 
@@ -5787,6 +5803,8 @@ def set_custom_search(search_term: str = Form(...)):
             return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
     else:
         return {"status": "success", "message": "Search updated (Inactive, model is not YOLO-World)"}
+
+app.add_middleware(PyscriptSecurity)
 
 if __name__ == "__main__":
     import uvicorn

@@ -49,3 +49,7 @@ dist/
 server-runner/*
 !server-runner/watch-servers.ps1
 *.log.previous
+
+background-camera-state.json
+data/web-users.json
+security-audit.log*

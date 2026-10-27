@@ -16,6 +16,7 @@ try {
     while ($true) {
         foreach ($service in $services) {
             try {
+                if (Test-Path -LiteralPath (Join-Path $satunRoot ('output\' + $service.Name + '-maintenance.flag'))) { continue }
                 $listener = Get-NetTCPConnection -LocalPort $service.Port -State Listen -ErrorAction SilentlyContinue
                 if ($listener) { continue }
                 if ($service.Process -and -not $service.Process.HasExited) { continue }

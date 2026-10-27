@@ -810,25 +810,7 @@
             if (!images.length) return;
             const session = {controllers: new Set(), urls: new Map(), timer: null, cursor: 0};
             wallPreviewSession = session;
-            // Four streams per host leave capacity for controls and other requests.
-            // CORS images retain the backend's loopback-only and origin protections.
-            const hosts = ['127.0.0.1', 'localhost', 'cam1.localhost', 'cam2.localhost'];
-            const localApi = new URL(API_URL);
-            const canShard = ['localhost', '127.0.0.1'].includes(localApi.hostname);
-            if (!forcePolling && canShard && images.length <= 16) {
-                session.streams = images;
-                images.forEach((image, index) => {
-                    const url = new URL('/video_feed/' + encodeURIComponent(image.dataset.cameraId), API_URL);
-                    url.hostname = hosts[index % hosts.length];
-                    image.crossOrigin = 'anonymous';
-                    image.onerror = () => {
-                        // DNS or streaming failure: retry the whole wall with finite requests.
-                        if (wallPreviewSession === session) startWallPreviews(true);
-                    };
-                    image.src = url.href;
-                });
-                return;
-            }
+            // Keep previews on the authenticated same-origin API proxy.
             async function refresh(image) {
                 const controller = new AbortController();
                 session.controllers.add(controller);

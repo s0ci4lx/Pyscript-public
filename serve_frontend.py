@@ -8,6 +8,7 @@ import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+from dashboard_security import authorize_dashboard
 
 
 ROOT = Path(__file__).resolve().parent
@@ -48,6 +49,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return is_public_request(self.path)
 
     def do_GET(self):
+        if not authorize_dashboard(self): return
         if self.path.startswith('/api/'):
             return self._proxy_api()
         if not self._is_public():
@@ -56,6 +58,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self):
+        if not authorize_dashboard(self): return
         if self.path.startswith('/api/'):
             return self._proxy_api()
         if not self._is_public():
@@ -64,6 +67,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
+        if not authorize_dashboard(self): return
         if self.path.startswith('/api/'):
             return self._proxy_api()
         self.send_error(404)
@@ -78,7 +82,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if length < 0 or length > 512 * 1024 * 1024:
                 self.send_error(413)
                 return
-            headers = {key: self.headers[key] for key in ('Content-Type', 'X-API-Key') if key in self.headers}
+            headers = {key: self.headers[key] for key in ('Content-Type', 'X-API-Key', 'Authorization') if key in self.headers}
             body = self.rfile.read(length) if length else None
             connection.request(self.command, self.path[4:], body=body, headers=headers)
             response = connection.getresponse()
@@ -130,11 +134,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             "Content-Security-Policy",
             "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
         )
-        if self._requested_file().endswith(".html"):
-            self.send_header("Cache-Control", "no-cache")
-        else:
-            self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("Cache-Control", "no-store")
         super().end_headers()
+
+    def log_request(self, code='-', size='-'):
+        self.log_message('%s %s %s', self.command, urlsplit(self.path).path, str(code))
 
 
 def main() -> None:

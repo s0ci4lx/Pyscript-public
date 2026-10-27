@@ -1,6 +1,8 @@
 > **ติดตั้ง Windows + NVIDIA จาก ZIP:** แตกไฟล์ก่อน แล้วอ่าน [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
 > ติดตั้ง Python 3.11 (64-bit) และไดรเวอร์ NVIDIA จากนั้นเปิด `install_windows.bat`
 > เมื่อติดตั้งผ่าน เปิด `start_windows.bat` — โหมดรถ/LPR ไม่ต้องติดตั้ง dlib
+> ตัวเปิด Windows รันบริการเบื้องหลังโดยไม่เปิดเบราว์เซอร์ ใช้ `open_dashboard.bat` เมื่อต้องการดูภาพและล็อกอิน
+> ดูวิธีตั้งบัญชีและการจำสถานะกล้องที่ [BACKGROUND.md](BACKGROUND.md)
 > **Mac:** เปิด `start_mac.command` ตามเดิม รองรับชุดเต็มรวมใบหน้า
 > ข้อมูลกล้อง เป้าหมาย ประวัติ และ Telegram ของผู้พัฒนาไม่รวมในรุ่นสาธารณะ
 
